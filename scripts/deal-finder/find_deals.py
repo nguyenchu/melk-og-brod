@@ -35,6 +35,37 @@ HISTORY_DAYS = 30
 RATE_LIMIT_SLEEP = 1.1  # Hobby-tier: 60 req/min
 MENY_MATCH = "meny"     # case-insensitive substring on store name
 
+# Kassalapps /products paginerer alfabetisk og de første ~5000 er babymat.
+# Vi sampler i stedet via søk på vanlige dagligvarer for å få et representativt
+# utvalg. Hvert søk henter inntil PER_QUERY produkter; resultatet dedupliseres
+# på EAN.
+SEARCH_QUERIES = [
+    # Meieri & egg
+    "melk", "yoghurt", "fløte", "egg", "rømme", "kefir", "kvarg",
+    # Brød & korn
+    "brød", "knekkebrød", "rundstykker", "havregryn", "müsli", "frokostblanding",
+    # Ost & pålegg
+    "ost", "smør", "leverpostei", "kaviar", "majones", "syltetøy", "honning",
+    "nugatti", "peanøttsmør",
+    # Kjøtt & fisk
+    "kjøtt", "kylling", "kjøttdeig", "biff", "svin", "lam", "fisk", "laks",
+    "torsk", "reker", "pølse", "bacon", "skinke",
+    # Frukt & grønt
+    "frukt", "eple", "banan", "appelsin", "drue", "jordbær", "blåbær",
+    "tomat", "agurk", "salat", "potet", "løk", "gulrot", "paprika", "brokkoli",
+    # Drikke
+    "brus", "cola", "kaffe", "kakao", "juice", "saft", "vann", "pils",
+    # Tørrvarer
+    "ris", "pasta", "spaghetti", "mel", "sukker", "salt", "olje", "krydder",
+    # Frossen
+    "frosset", "pizza", "lasagne", "taco", "iskrem", "tortillalefser",
+    # Snacks & søtt
+    "sjokolade", "kjeks", "godteri", "chips", "kake", "sjampinjong", "nøtter",
+    # Husholdning
+    "papir", "tørkerull", "vaskemiddel", "såpe", "tannkrem", "sjampo",
+]
+PER_QUERY = int(os.environ.get("PER_QUERY", "30"))
+
 
 def kassal_session():
     s = requests.Session()
@@ -66,17 +97,34 @@ def init_db(conn):
 
 def fetch_products(s, target):
     out = []
-    page = 1
-    while len(out) < target:
-        r = s.get(f"{API_BASE}/products", params={"page": page, "size": 100})
-        r.raise_for_status()
-        batch = r.json().get("data") or []
-        if not batch:
+    seen = set()
+    for q in SEARCH_QUERIES:
+        if len(out) >= target:
             break
-        out.extend(batch)
-        page += 1
+        if len(q) < 3:
+            continue  # Kassalapp krever min 3 tegn på search
+        r = s.get(
+            f"{API_BASE}/products",
+            params={"search": q, "size": PER_QUERY, "page": 1},
+        )
+        if not r.ok:
+            print(f"  [{q!r}] {r.status_code}: {r.text[:120]} — hopper over")
+            time.sleep(RATE_LIMIT_SLEEP)
+            continue
+        batch = r.json().get("data") or []
+        added = 0
+        for p in batch:
+            ean = p.get("ean")
+            if not ean or ean in seen:
+                continue
+            seen.add(ean)
+            out.append(p)
+            added += 1
+            if len(out) >= target:
+                break
+        print(f"  [{q!r}] +{added} (total {len(out)})")
         time.sleep(RATE_LIMIT_SLEEP)
-    return out[:target]
+    return out
 
 
 def fetch_prices_bulk(s, eans):
@@ -85,7 +133,7 @@ def fetch_prices_bulk(s, eans):
         chunk = eans[i : i + 100]
         r = s.post(
             f"{API_BASE}/products/prices-bulk",
-            json={"ean": chunk, "days": HISTORY_DAYS},
+            json={"eans": chunk, "days": HISTORY_DAYS},
         )
         r.raise_for_status()
         payload = r.json().get("data") or {}
@@ -101,7 +149,12 @@ def fetch_prices_bulk(s, eans):
 
 
 def meny_points(history):
-    points = history.get("prices") or history.get("history") or []
+    points = (
+        history.get("price_history")
+        or history.get("prices")
+        or history.get("history")
+        or []
+    )
     return [
         p for p in points
         if MENY_MATCH in (p.get("store") or p.get("store_name") or "").lower()
@@ -109,7 +162,7 @@ def meny_points(history):
 
 
 def score_deal(meny_history):
-    if len(meny_history) < 5:
+    if len(meny_history) < 3:
         return None
     sorted_by_date = sorted(meny_history, key=lambda p: p.get("date", ""))
     today = sorted_by_date[-1]
