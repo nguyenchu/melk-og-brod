@@ -37,6 +37,8 @@ yarn-error.*
 .venv/
 __pycache__/
 *.pyc
+scripts/deal-finder/deals.db
+scripts/deal-finder/logs/
 
 # typescript
 *.tsbuildinfo

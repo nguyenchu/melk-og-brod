@@ -23,7 +23,7 @@ export default function DealsScreen() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const rows = await fetchTopDeals(10, 100);
+      const rows = await fetchTopDeals(0.1, 100);
       setDeals(rows);
     } catch (e: any) {
       setError(e.message ?? 'Kunne ikke hente tilbud');
