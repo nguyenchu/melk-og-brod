@@ -1,37 +1,20 @@
-export type Household = {
-  id: string;
+export type MenyProduct = {
+  ean: string;
   name: string;
-  created_at: string;
+  brand: string | null;
+  image_url: string | null;
+  vendor_url: string | null;
+  current_price: number | null;
+  median_30d: number | null;
+  drop_pct: number | null;
+  computed_at: string;
 };
 
-export type Membership = {
-  household_id: string;
-  user_id: string;
-  role: 'owner' | 'member';
-  joined_at: string;
-};
-
-export type List = {
+export type CartItem = {
   id: string;
-  household_id: string;
   name: string;
-  created_at: string;
-};
-
-export type Item = {
-  id: string;
-  list_id: string;
-  name: string;
+  ean: string | null;
+  price: number | null;
   checked: boolean;
-  added_by: string;
-  created_at: string;
-};
-
-export type Invite = {
-  code: string;
-  household_id: string;
-  created_by: string;
-  expires_at: string;
-  used_count: number;
-  max_uses: number;
+  added_at: string;
 };

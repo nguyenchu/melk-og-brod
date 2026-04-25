@@ -1,0 +1,35 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
+
+const ACCENT = '#E10A0A'; // Meny-rødt
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: ACCENT,
+        headerStyle: { backgroundColor: '#fff' },
+        headerTitleStyle: { fontWeight: '700' },
+      }}
+    >
+      <Tabs.Screen
+        name="deals"
+        options={{
+          title: 'Tilbud',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="pricetag" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: 'Handleliste',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cart" color={color} size={size} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
