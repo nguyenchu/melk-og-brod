@@ -30,7 +30,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 DB_PATH = Path(__file__).parent / "deals.db"
 
-PRODUCT_SAMPLE_SIZE = int(os.environ.get("PRODUCT_SAMPLE_SIZE", "200"))
+PRODUCT_SAMPLE_SIZE = int(os.environ.get("PRODUCT_SAMPLE_SIZE", "1000"))
 HISTORY_DAYS = 30
 RATE_LIMIT_SLEEP = 1.1  # Hobby-tier: 60 req/min
 MENY_MATCH = "meny"     # case-insensitive substring on store name
@@ -64,7 +64,7 @@ SEARCH_QUERIES = [
     # Husholdning
     "papir", "tørkerull", "vaskemiddel", "såpe", "tannkrem", "sjampo",
 ]
-PER_QUERY = int(os.environ.get("PER_QUERY", "30"))
+PER_QUERY = int(os.environ.get("PER_QUERY", "50"))
 
 
 def kassal_session():
