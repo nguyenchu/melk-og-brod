@@ -16,6 +16,7 @@ import {
   clearChecked,
   removeFromCart,
   toggleChecked,
+  updateQuantity,
   useCart,
 } from '@/lib/cart';
 import { searchProducts } from '@/lib/deals';
@@ -77,7 +78,7 @@ export default function CartScreen() {
   }, [items]);
 
   const total = useMemo(
-    () => active.reduce((sum, i) => sum + (i.price ?? 0), 0),
+    () => active.reduce((sum, i) => sum + (i.price ?? 0) * i.quantity, 0),
     [active],
   );
 
@@ -127,7 +128,7 @@ export default function CartScreen() {
           ListHeaderComponent={
             active.length === 0 ? null : (
               <Text style={styles.sectionTitle}>
-                Å handle ({active.length})
+                Å handle ({active.reduce((sum, item) => sum + item.quantity, 0)})
               </Text>
             )
           }
@@ -140,7 +141,12 @@ export default function CartScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <CartRow item={item} onToggle={toggleChecked} onRemove={removeFromCart} />
+            <CartRow
+              item={item}
+              onToggle={toggleChecked}
+              onRemove={removeFromCart}
+              onChangeQuantity={updateQuantity}
+            />
           )}
           ListFooterComponent={
             <View>
@@ -153,7 +159,9 @@ export default function CartScreen() {
               {done.length > 0 && (
                 <View style={styles.doneSection}>
                   <View style={styles.doneHeader}>
-                    <Text style={styles.sectionTitle}>I kurven ({done.length})</Text>
+                    <Text style={styles.sectionTitle}>
+                      I kurven ({done.reduce((sum, item) => sum + item.quantity, 0)})
+                    </Text>
                     <Pressable onPress={() => clearChecked()} hitSlop={8}>
                       <Text style={styles.clearLink}>Fjern alle</Text>
                     </Pressable>
@@ -164,6 +172,7 @@ export default function CartScreen() {
                       item={i}
                       onToggle={toggleChecked}
                       onRemove={removeFromCart}
+                      onChangeQuantity={updateQuantity}
                     />
                   ))}
                 </View>
@@ -232,10 +241,12 @@ function CartRow({
   item,
   onToggle,
   onRemove,
+  onChangeQuantity,
 }: {
   item: CartItem;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
+  onChangeQuantity: (id: string, quantity: number) => void;
 }) {
   return (
     <View style={styles.cartRow}>
@@ -250,9 +261,29 @@ function CartRow({
         <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>
           {item.name}
         </Text>
-        {item.price != null && (
-          <Text style={styles.cartPrice}>{item.price.toFixed(2)} kr</Text>
-        )}
+        <View style={styles.cartMetaRow}>
+          {item.price != null && (
+            <Text style={styles.cartPrice}>
+              {item.price.toFixed(2)} kr
+              {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
+            </Text>
+          )}
+          <View style={styles.quantityControl}>
+            <Pressable
+              onPress={() => onChangeQuantity(item.id, item.quantity - 1)}
+              hitSlop={8}
+              style={styles.quantityButton}>
+              <Ionicons name="remove" size={16} color="#444" />
+            </Pressable>
+            <Text style={styles.quantityValue}>{item.quantity}</Text>
+            <Pressable
+              onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
+              hitSlop={8}
+              style={styles.quantityButton}>
+              <Ionicons name="add" size={16} color="#444" />
+            </Pressable>
+          </View>
+        </View>
       </View>
       <Pressable onPress={() => onRemove(item.id)} hitSlop={8}>
         <Ionicons name="trash-outline" size={20} color="#999" />
@@ -311,6 +342,27 @@ const styles = StyleSheet.create({
   cartName: { fontSize: 15, fontWeight: '500' },
   cartNameDone: { color: '#aaa', textDecorationLine: 'line-through' },
   cartPrice: { fontSize: 13, color: '#666', marginTop: 2 },
+  cartMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 2,
+  },
+  quantityControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  quantityButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f0f0f2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quantityValue: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '600' },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

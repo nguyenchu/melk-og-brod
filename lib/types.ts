@@ -15,6 +15,7 @@ export type CartItem = {
   name: string;
   ean: string | null;
   price: number | null;
+  quantity: number;
   checked: boolean;
   added_at: string;
 };
