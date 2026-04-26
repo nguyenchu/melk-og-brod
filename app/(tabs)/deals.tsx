@@ -67,6 +67,27 @@ function formatComputedAt(value: string) {
   return `Oppdatert for ${diffDays} d siden · ${absolute}`;
 }
 
+function isLikelyCampaignText(value: string | null | undefined) {
+  if (!value) return false;
+  const text = value.trim();
+  const normalized = text.toLowerCase();
+
+  if (
+    text.length > 60 ||
+    /[{}[\]":]/.test(text) ||
+    /next_public_|window\.env|trumfid|chainid|token|provider|login/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return (
+    /\b\d+\s*for\s*\d+\b/.test(normalized) ||
+    /\bkj[øo]p\s*\d+.*betal/.test(normalized) ||
+    /\bmedlemspris\b/.test(normalized) ||
+    /\btrumf(?:-bonus)?\b/.test(normalized)
+  );
+}
+
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -182,6 +203,7 @@ function DealRow({ item }: { item: MenyProduct }) {
             </Text>
           ) : null}
         </View>
+        {isLikelyCampaignText(item.campaign_text) ? <Text style={styles.campaign}>{item.campaign_text}</Text> : null}
         {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
         <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
@@ -225,6 +247,17 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
+  campaign: {
+    fontSize: 12,
+    color: '#0B6B3A',
+    backgroundColor: '#E9F7EF',
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    fontWeight: '600',
+  },
   approximate: { fontSize: 12, color: '#8b6b34', marginTop: 4 },
   unitPrice: { fontSize: 12, color: '#666', marginTop: 2 },
   computedAt: { fontSize: 12, color: '#777', marginTop: 6 },

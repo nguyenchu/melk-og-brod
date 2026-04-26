@@ -7,6 +7,7 @@ export type MenyProduct = {
   current_price: number | null;
   median_30d: number | null;
   drop_pct: number | null;
+  campaign_text: string | null;
   computed_at: string;
 };
 

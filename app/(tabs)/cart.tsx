@@ -296,6 +296,18 @@ function CartRow({
   onRemove: (id: string) => void;
   onChangeQuantity: (id: string, quantity: number) => void;
 }) {
+  const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
+  const value = draftQuantity ?? String(item.quantity);
+
+  function commit() {
+    if (draftQuantity == null) return;
+    const parsed = parseInt(draftQuantity, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      if (parsed !== item.quantity) onChangeQuantity(item.id, parsed);
+    }
+    setDraftQuantity(null);
+  }
+
   return (
     <View style={styles.cartRow}>
       {item.image_url ? (
@@ -316,31 +328,40 @@ function CartRow({
         <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>
           {item.name}
         </Text>
-        <View style={styles.cartMetaRow}>
-          {item.price != null && (
-            <Text style={styles.cartPrice}>
-              {item.price.toFixed(2)} kr
-              {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
-            </Text>
-          )}
-          <View style={styles.quantityControl}>
-            <Pressable
-              onPress={() => onChangeQuantity(item.id, item.quantity - 1)}
-              hitSlop={8}
-              style={styles.quantityButton}>
-              <Ionicons name="remove" size={16} color="#444" />
-            </Pressable>
-            <Text style={styles.quantityValue}>{item.quantity}</Text>
-            <Pressable
-              onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
-              hitSlop={8}
-              style={styles.quantityButton}>
-              <Ionicons name="add" size={16} color="#444" />
-            </Pressable>
-          </View>
-        </View>
+        {item.price != null && (
+          <Text style={styles.cartPrice}>
+            {item.price.toFixed(2)} kr
+            {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
+          </Text>
+        )}
       </View>
-      <Pressable onPress={() => onRemove(item.id)} hitSlop={8}>
+      <View style={styles.quantityControl}>
+        <Pressable
+          onPress={() => onChangeQuantity(item.id, Math.max(1, item.quantity - 1))}
+          hitSlop={8}
+          style={styles.quantityButton}>
+          <Ionicons name="remove" size={18} color="#444" />
+        </Pressable>
+        <TextInput
+          value={value}
+          onChangeText={(text) => setDraftQuantity(text.replace(/[^0-9]/g, ''))}
+          onFocus={() => setDraftQuantity(String(item.quantity))}
+          onBlur={commit}
+          onSubmitEditing={commit}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          selectTextOnFocus
+          maxLength={3}
+          style={styles.quantityValue}
+        />
+        <Pressable
+          onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
+          hitSlop={8}
+          style={styles.quantityButton}>
+          <Ionicons name="add" size={18} color="#444" />
+        </Pressable>
+      </View>
+      <Pressable onPress={() => onRemove(item.id)} hitSlop={10} style={styles.removeButton}>
         <Ionicons name="trash-outline" size={20} color="#999" />
       </Pressable>
     </View>
@@ -437,27 +458,32 @@ const styles = StyleSheet.create({
   cartName: { fontSize: 15, fontWeight: '500' },
   cartNameDone: { color: '#aaa', textDecorationLine: 'line-through' },
   cartPrice: { fontSize: 13, color: '#666', marginTop: 2 },
-  cartMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 2,
-  },
   quantityControl: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
+    backgroundColor: '#f5f5f7',
+    borderRadius: 18,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
   },
   quantityButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f0f0f2',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  quantityValue: { minWidth: 18, textAlign: 'center', fontSize: 14, fontWeight: '600' },
+  quantityValue: {
+    minWidth: 30,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#222',
+    paddingVertical: 0,
+  },
+  removeButton: { padding: 4 },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
