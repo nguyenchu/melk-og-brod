@@ -18,8 +18,8 @@ const STAPLE_PROFILES: Record<
     avoid: ['melkesjokolade', 'sjokolademelk', 'havremelk', 'mandelmelk', 'kokosmelk', 'proteinmelk', 'kaffe'],
   },
   smor: {
-    include: ['smor', 'meierismor', 'brelett'],
-    avoid: ['smorbrod', 'smorsmak', 'kryddersmor', 'hvitloksmor', 'sandefjordsmor'],
+    include: ['smor', 'meierismor', 'lettsmor', 'lurpak', 'brelett', 'bremykt', 'soyasmor'],
+    avoid: ['smorbrod', 'smorsmak'],
   },
   brod: {
     include: ['brod', 'grovbrod', 'kneipp', 'rundstykker', 'toastbrod', 'havrebrod', 'fjellbrod', 'mors brod'],
