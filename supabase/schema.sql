@@ -13,6 +13,7 @@ create table meny_products (
   current_price numeric,
   median_30d    numeric,
   drop_pct      numeric,
+  campaign_text text,
   computed_at   timestamptz not null default now()
 );
 

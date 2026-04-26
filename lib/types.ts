@@ -7,6 +7,7 @@ export type MenyProduct = {
   current_price: number | null;
   median_30d: number | null;
   drop_pct: number | null;
+  campaign_text: string | null;
   computed_at: string;
 };
 
@@ -14,7 +15,9 @@ export type CartItem = {
   id: string;
   name: string;
   ean: string | null;
+  image_url: string | null;
   price: number | null;
+  quantity: number;
   checked: boolean;
   added_at: string;
 };
