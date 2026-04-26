@@ -204,19 +204,19 @@ function SearchResults({
       keyExtractor={(p) => p.ean}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.listContent}
-      ListHeaderComponent={
-        <Pressable style={styles.manualAdd} onPress={onAddManual}>
-          <Ionicons name="add-circle" size={22} color="#E10A0A" />
-          <Text style={styles.manualAddText}>
-            Legg til “{query.trim()}”
-          </Text>
-        </Pressable>
-      }
       ListEmptyComponent={
         searching ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
         ) : query.trim().length < 2 ? null : (
-          <Text style={styles.empty}>Ingen treff på Meny.</Text>
+          <View style={{ gap: 8 }}>
+            <Text style={styles.empty}>Ingen treff på Meny.</Text>
+            <Pressable style={styles.manualAdd} onPress={onAddManual}>
+              <Ionicons name="add-circle" size={22} color="#E10A0A" />
+              <Text style={styles.manualAddText}>
+                Legg til “{query.trim()}”
+              </Text>
+            </Pressable>
+          </View>
         )
       }
       renderItem={({ item }) => (
@@ -233,6 +233,16 @@ function SearchResults({
           <Ionicons name="add" size={22} color="#E10A0A" />
         </Pressable>
       )}
+      ListFooterComponent={
+        results.length > 0 ? (
+          <Pressable style={styles.manualAdd} onPress={onAddManual}>
+            <Ionicons name="add-circle" size={22} color="#E10A0A" />
+            <Text style={styles.manualAddText}>
+              Legg til “{query.trim()}” manuelt
+            </Text>
+          </Pressable>
+        ) : null
+      }
     />
   );
 }

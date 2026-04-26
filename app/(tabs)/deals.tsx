@@ -15,6 +15,26 @@ import { addToCart } from '@/lib/cart';
 import { fetchTopDeals } from '@/lib/deals';
 import type { MenyProduct } from '@/lib/types';
 
+function formatComputedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Oppdatert tidspunkt ukjent';
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const diffHours = Math.max(0, Math.round(diffMs / (1000 * 60 * 60)));
+  const absolute = new Intl.DateTimeFormat('nb-NO', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+
+  if (diffHours < 1) return `Oppdatert nylig · ${absolute}`;
+  if (diffHours < 24) return `Oppdatert for ${diffHours} t siden · ${absolute}`;
+
+  const diffDays = Math.round(diffHours / 24);
+  return `Oppdatert for ${diffDays} d siden · ${absolute}`;
+}
+
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,7 +88,7 @@ export default function DealsScreen() {
       ListEmptyComponent={
         !error ? (
           <Text style={styles.empty}>
-            Ingen tilbud funnet enda. Kjør `find_deals.py` for å fylle databasen.
+            Ingen ferske tilbud akkurat nå. Kjør `find_deals.py` på nytt for å hente oppdaterte priser.
           </Text>
         ) : null
       }
@@ -119,6 +139,7 @@ function DealRow({ item }: { item: MenyProduct }) {
             </Text>
           ) : null}
         </View>
+        <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
       </View>
       <View style={styles.right}>
         <View style={styles.dropBadge}>
@@ -159,6 +180,7 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
+  computedAt: { fontSize: 12, color: '#777', marginTop: 6 },
   right: { alignItems: 'center', gap: 8 },
   dropBadge: {
     backgroundColor: '#FFF1D6',
