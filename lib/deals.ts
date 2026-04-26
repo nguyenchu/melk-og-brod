@@ -1,12 +1,16 @@
 import { supabase } from './supabase';
 import type { MenyProduct } from './types';
 
+const MAX_DEAL_AGE_HOURS = 48;
+
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
+  const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('meny_products')
     .select('*')
     .not('drop_pct', 'is', null)
     .gte('drop_pct', minDropPct)
+    .gte('computed_at', freshestAllowed)
     .order('drop_pct', { ascending: false })
     .limit(limit);
   if (error) throw error;
