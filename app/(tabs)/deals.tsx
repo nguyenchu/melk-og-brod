@@ -15,6 +15,38 @@ import { addToCart } from '@/lib/cart';
 import { fetchTopDeals } from '@/lib/deals';
 import type { MenyProduct } from '@/lib/types';
 
+function isVariableWeightItem(item: MenyProduct) {
+  const normalizedName = item.name.toLowerCase();
+  return (
+    item.ean.startsWith('2') ||
+    /ca[\s.]*\d+[,.]?\d*\s*kg/.test(normalizedName) ||
+    /ca[\s.]*\d+[,.]?\d*\s*g/.test(normalizedName) ||
+    normalizedName.includes('ca ')
+  );
+}
+
+function extractWeightKg(name: string) {
+  const normalized = name.toLowerCase().replace(/\s+/g, ' ');
+  const kgMatch = normalized.match(/(?:ca[\s.]*)?(\d+[.,]?\d*)\s*kg\b/);
+  if (kgMatch) return Number(kgMatch[1].replace(',', '.'));
+
+  const gramMatch = normalized.match(/(?:ca[\s.]*)?(\d+[.,]?\d*)\s*g\b/);
+  if (gramMatch) return Number(gramMatch[1].replace(',', '.')) / 1000;
+
+  return null;
+}
+
+function formatPrice(value: number | null | undefined, approximate: boolean) {
+  if (value == null) return null;
+  return approximate ? `${Math.round(value)} kr` : `${value.toFixed(2)} kr`;
+}
+
+function formatUnitPrice(totalPrice: number | null | undefined, weightKg: number | null, approximate: boolean) {
+  if (totalPrice == null || !weightKg || !Number.isFinite(weightKg) || weightKg <= 0) return null;
+  const unitPrice = totalPrice / weightKg;
+  return approximate ? `ca. ${Math.round(unitPrice)} kr/kg` : `${unitPrice.toFixed(2)} kr/kg`;
+}
+
 function formatComputedAt(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Oppdatert tidspunkt ukjent';
@@ -105,6 +137,7 @@ function DealRow({ item }: { item: MenyProduct }) {
       await addToCart({
         name: item.name,
         ean: item.ean,
+        image_url: item.image_url,
         price: item.current_price,
       });
       setAdded(true);
@@ -115,6 +148,12 @@ function DealRow({ item }: { item: MenyProduct }) {
   }
 
   const drop = item.drop_pct ?? 0;
+  const approximate = isVariableWeightItem(item);
+  const weightKg = extractWeightKg(item.name);
+  const currentPriceLabel = formatPrice(item.current_price, approximate);
+  const beforePriceLabel = formatPrice(item.median_30d, approximate);
+  const unitPriceLabel = formatUnitPrice(item.current_price, weightKg, approximate);
+
   return (
     <View style={styles.row}>
       {item.image_url ? (
@@ -130,15 +169,21 @@ function DealRow({ item }: { item: MenyProduct }) {
         </Text>
         {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
         <View style={styles.priceRow}>
-          <Text style={styles.price}>
-            {item.current_price?.toFixed(2)} kr
-          </Text>
-          {item.median_30d ? (
+          {currentPriceLabel ? (
+            <Text style={styles.price}>
+              {approximate ? 'ca. ' : ''}
+              {currentPriceLabel}
+            </Text>
+          ) : null}
+          {beforePriceLabel ? (
             <Text style={styles.median}>
-              før {item.median_30d.toFixed(2)} kr
+              før {approximate ? 'ca. ' : ''}
+              {beforePriceLabel}
             </Text>
           ) : null}
         </View>
+        {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
+        {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
         <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
       </View>
       <View style={styles.right}>
@@ -180,6 +225,8 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
+  approximate: { fontSize: 12, color: '#8b6b34', marginTop: 4 },
+  unitPrice: { fontSize: 12, color: '#666', marginTop: 2 },
   computedAt: { fontSize: 12, color: '#777', marginTop: 6 },
   right: { alignItems: 'center', gap: 8 },
   dropBadge: {

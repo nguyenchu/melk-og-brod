@@ -17,6 +17,7 @@ import re
 import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import median
 
@@ -39,6 +40,24 @@ MENY_HISTORY_STORE = "MENY_NO"
 CATALOG_PAGE_SIZE = 100
 MAX_CATALOG_PAGES = int(os.environ.get("MAX_CATALOG_PAGES", "250"))
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "0"))
+PRICE_HISTORY_CHUNK_SIZE = int(os.environ.get("PRICE_HISTORY_CHUNK_SIZE", "100"))
+PRICE_HISTORY_WORKERS = int(os.environ.get("PRICE_HISTORY_WORKERS", "4"))
+MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "5"))
+SEARCH_SUPPLEMENTS = [
+    "egg",
+    "10pk egg",
+    "12pk egg",
+    "bakketun egg",
+    "frittgaende egg",
+    "melk",
+    "smør",
+    "ost",
+    "brød",
+    "yoghurt",
+    "banan",
+    "juice",
+    "kaffe",
+]
 
 
 def kassal_session():
@@ -98,6 +117,19 @@ def is_meny_product(product):
     return bool(ean) and ("meny.no" in url or store == MENY_HISTORY_STORE)
 
 
+def merge_product(by_ean, product):
+    ean = product.get("ean")
+    if not ean or not is_meny_product(product):
+        return False
+    current = by_ean.get(ean)
+    if current is None:
+        by_ean[ean] = product
+        return True
+    if product_priority(product) > product_priority(current):
+        by_ean[ean] = product
+    return False
+
+
 def fetch_products(s):
     by_ean = {}
     pages_with_no_new = 0
@@ -117,17 +149,8 @@ def fetch_products(s):
 
         added = 0
         for p in batch:
-            if not is_meny_product(p):
-                continue
-            ean = p.get("ean")
-            if not ean:
-                continue
-            current = by_ean.get(ean)
-            if current is None:
-                by_ean[ean] = p
+            if merge_product(by_ean, p):
                 added += 1
-            elif product_priority(p) > product_priority(current):
-                by_ean[ean] = p
 
         if added == 0:
             pages_with_no_new += 1
@@ -142,32 +165,62 @@ def fetch_products(s):
         if len(batch) < CATALOG_PAGE_SIZE:
             print(f"  [page {page}] siste side")
             break
-        if pages_with_no_new >= 15:
-            print(f"  [page {page}] 15 sider uten nye Meny-varer — stopper")
+        if pages_with_no_new >= MAX_EMPTY_PAGES_WITHOUT_NEW:
+            print(
+                f"  [page {page}] {MAX_EMPTY_PAGES_WITHOUT_NEW} sider uten nye Meny-varer — stopper"
+            )
             time.sleep(RATE_LIMIT_SLEEP)
             break
+        time.sleep(RATE_LIMIT_SLEEP)
+
+    print("Supplerer katalog med målrettede søk...")
+    for query in SEARCH_SUPPLEMENTS:
+        response = s.get(
+            f"{API_BASE}/products",
+            params={"search": query, "size": 50, "page": 1},
+        )
+        if not response.ok:
+            print(f"  [søk {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
+            time.sleep(RATE_LIMIT_SLEEP)
+            continue
+        batch = response.json().get("data") or []
+        added = 0
+        for product in batch:
+            if merge_product(by_ean, product):
+                added += 1
+        print(f"  [søk {query!r}] +{added} Meny-varer (total {len(by_ean)})")
         time.sleep(RATE_LIMIT_SLEEP)
     return list(by_ean.values())
 
 
 def fetch_prices_bulk(s, eans):
-    histories = {}
-    for i in range(0, len(eans), 100):
-        chunk = eans[i : i + 100]
-        r = s.post(
+    def fetch_chunk(chunk):
+        response = requests.post(
             f"{API_BASE}/products/prices-bulk",
+            headers={"Authorization": f"Bearer {API_KEY}"},
             json={"eans": chunk, "days": HISTORY_DAYS, "aggregation": "avg"},
+            timeout=30,
         )
-        r.raise_for_status()
-        payload = r.json().get("data") or {}
-        if isinstance(payload, list):
-            for item in payload:
-                ean = item.get("ean")
-                if ean:
-                    histories[ean] = item
-        elif isinstance(payload, dict):
-            histories.update(payload)
-        time.sleep(RATE_LIMIT_SLEEP)
+        response.raise_for_status()
+        return response.json().get("data") or {}
+
+    chunks = [eans[i : i + PRICE_HISTORY_CHUNK_SIZE] for i in range(0, len(eans), PRICE_HISTORY_CHUNK_SIZE)]
+    histories = {}
+    with ThreadPoolExecutor(max_workers=max(1, PRICE_HISTORY_WORKERS)) as executor:
+        futures = {executor.submit(fetch_chunk, chunk): chunk for chunk in chunks}
+        for future in as_completed(futures):
+            payload = future.result()
+            chunk = futures[future]
+            if isinstance(payload, list):
+                for item in payload:
+                    ean = item.get("ean")
+                    if ean:
+                        histories[ean] = item
+            elif isinstance(payload, dict):
+                histories.update(payload)
+            print(f"  historikk {min(len(histories), len(eans))}/{len(eans)}", end="\r")
+            sys.stdout.flush()
+    print(" " * 40, end="\r")
     return histories
 
 
@@ -298,11 +351,11 @@ def push_to_supabase(rows):
 
 
 def build_supabase_rows(products, histories, live_price_session):
-    by_ean = {p.get("ean"): p for p in products if p.get("ean")}
     rows = []
     stats = {
+        "total_products": len(products),
         "total_histories": len(histories),
-        "missing_product": 0,
+        "missing_base_price": 0,
         "missing_store_match": 0,
         "missing_score": 0,
         "missing_live_price": 0,
@@ -311,11 +364,14 @@ def build_supabase_rows(products, histories, live_price_session):
     sample_store_names = []
     sample_missing_store = []
     sample_missing_live = []
-    for ean, history in histories.items():
-        product = by_ean.get(ean, {})
-        if not product:
-            stats["missing_product"] += 1
+    for product in products:
+        ean = product.get("ean")
+        if not ean:
             continue
+        history = histories.get(ean) or {}
+        base_price = product.get("current_price")
+        if base_price is None:
+            stats["missing_base_price"] += 1
 
         store_names = all_meny_store_names(history)
         for name in store_names:
@@ -335,24 +391,33 @@ def build_supabase_rows(products, histories, live_price_session):
                         "stores": store_names[:5],
                     }
                 )
-            continue
-        score = score_deal(meny)
-        if not score:
+        score = score_deal(meny) if meny else None
+        if meny and not score:
             stats["missing_score"] += 1
+
+        live_price = None
+        if score:
+            live_price = fetch_live_meny_price(live_price_session, product.get("url"))
+            if live_price is None:
+                stats["missing_live_price"] += 1
+                if len(sample_missing_live) < 5:
+                    sample_missing_live.append(
+                        {
+                            "ean": ean,
+                            "name": product.get("name") or "",
+                            "url": product.get("url"),
+                        }
+                    )
+
+        current_price = live_price if live_price is not None else base_price
+        if current_price is None:
             continue
-        live_price = fetch_live_meny_price(live_price_session, product.get("url"))
-        if live_price is None:
-            stats["missing_live_price"] += 1
-            if len(sample_missing_live) < 5:
-                sample_missing_live.append(
-                    {
-                        "ean": ean,
-                        "name": product.get("name") or "",
-                        "url": product.get("url"),
-                    }
-                )
-            continue
-        drop_pct = (score["median"] - live_price) / score["median"] * 100
+
+        drop_pct = None
+        median_30d = None
+        if score and live_price is not None:
+            median_30d = score["median"]
+            drop_pct = round((score["median"] - live_price) / score["median"] * 100, 2)
         rows.append(
             {
                 "ean": ean,
@@ -360,9 +425,9 @@ def build_supabase_rows(products, histories, live_price_session):
                 "brand": product.get("brand"),
                 "image_url": product.get("image"),
                 "vendor_url": product.get("url"),
-                "current_price": round(live_price, 2),
-                "median_30d": score["median"],
-                "drop_pct": round(drop_pct, 2),
+                "current_price": round(float(current_price), 2),
+                "median_30d": median_30d,
+                "drop_pct": drop_pct,
             }
         )
     stats["rows_built"] = len(rows)
@@ -413,8 +478,9 @@ def main():
     )
 
     print("\nDebug:")
+    print(f"  Produkter i katalogsync: {stats['total_products']}")
     print(f"  Historier mottatt: {stats['total_histories']}")
-    print(f"  Mangler produktdata: {stats['missing_product']}")
+    print(f"  Mangler grunnpris: {stats['missing_base_price']}")
     print(f"  Ingen historikkmatch for {MENY_HISTORY_STORE}: {stats['missing_store_match']}")
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
