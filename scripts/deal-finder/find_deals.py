@@ -20,6 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import median
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from dotenv import load_dotenv
@@ -49,15 +50,80 @@ SEARCH_SUPPLEMENTS = [
     "12pk egg",
     "bakketun egg",
     "frittgaende egg",
+    "prior egg",
+    "frokostegg",
     "melk",
+    "tinemelk",
+    "lettmelk",
+    "helmelk",
+    "skummetmelk",
+    "q melk",
     "smør",
+    "meierismør",
+    "lettsmør",
+    "lurpak",
+    "brelett",
+    "bremykt",
+    "soyasmør",
     "ost",
+    "norvegia",
+    "jarlsberg",
+    "gulost",
+    "hvitost",
+    "cheddar",
+    "mozzarella",
     "brød",
+    "grovbrød",
+    "kneippbrød",
+    "toastbrød",
+    "burgerbrød",
+    "rundstykker",
     "yoghurt",
+    "skyr",
     "banan",
+    "eple",
+    "appelsin",
+    "tomat",
+    "agurk",
+    "potet",
+    "gulrot",
+    "løk",
+    "paprika",
+    "salat",
+    "kjøttdeig",
+    "kylling",
+    "kyllingfilet",
+    "laks",
+    "torsk",
+    "pasta",
+    "spagetti",
+    "ris",
+    "havregryn",
+    "müsli",
+    "frokostblanding",
     "juice",
+    "appelsinjuice",
+    "eplejuice",
     "kaffe",
+    "filterkaffe",
+    "te",
+    "sukker",
+    "salt",
+    "mel",
+    "hvetemel",
+    "olje",
+    "olivenolje",
 ]
+PROMO_KEYWORDS = (
+    "trumf",
+    "bonus",
+    "kjøp",
+    "kjop",
+    "betal",
+    "for",
+    "spar",
+    "medlemspris",
+)
 
 
 def kassal_session():
@@ -177,7 +243,7 @@ def fetch_products(s):
     for query in SEARCH_SUPPLEMENTS:
         response = s.get(
             f"{API_BASE}/products",
-            params={"search": query, "size": 50, "page": 1},
+            params={"search": query, "size": 100, "page": 1},
         )
         if not response.ok:
             print(f"  [søk {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
@@ -275,7 +341,91 @@ def score_deal(meny_history):
     }
 
 
-def extract_meny_live_price(html):
+def compact_text(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def normalize_promo_text(value):
+    text = compact_text(value)
+    if not text:
+        return None
+    lowered = text.lower()
+    if not any(keyword in lowered for keyword in PROMO_KEYWORDS):
+        return None
+    if any(
+        blocked in lowered
+        for blocked in (
+            "next_public_",
+            "trumfid",
+            "window.env",
+            "chainid",
+            "provider",
+            "screen9",
+            "api/auth",
+            "login",
+            "token",
+        )
+    ):
+        return None
+    if len(text) > 80:
+        return None
+    text = re.sub(r"\s*[,;|]\s*", " · ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text[:120]
+
+
+def extract_campaign_text_from_offer(offer):
+    if not isinstance(offer, dict):
+        return None
+
+    candidates = [
+        offer.get("name"),
+        offer.get("description"),
+        offer.get("category"),
+    ]
+
+    price_spec = offer.get("priceSpecification")
+    if isinstance(price_spec, dict):
+        candidates.extend(
+            [
+                price_spec.get("name"),
+                price_spec.get("description"),
+            ]
+        )
+    elif isinstance(price_spec, list):
+        for spec in price_spec:
+            if isinstance(spec, dict):
+                candidates.extend(
+                    [
+                        spec.get("name"),
+                        spec.get("description"),
+                    ]
+                )
+
+    for candidate in candidates:
+        promo = normalize_promo_text(candidate)
+        if promo:
+            return promo
+    return None
+
+
+def extract_campaign_text_from_html(html):
+    snippets = []
+    for pattern in (
+        r"((?:kj[øo]p\s*\d+\s*(?:,?\s*)betal\s*(?:for\s*)?\d+)[^<\n]{0,30})",
+        r"((?:\d+\s*for\s*\d+)[^<\n]{0,30})",
+        r"((?:\+\s*\d+%?\s*trumf(?:-bonus)?) [^<\n]{0,30})",
+        r"((?:medlemspris)[^<\n]{0,40})",
+    ):
+        snippets.extend(re.findall(pattern, html, re.IGNORECASE))
+    for snippet in snippets:
+        promo = normalize_promo_text(snippet)
+        if promo:
+            return promo
+    return None
+
+
+def extract_meny_live_data(html):
     match = re.search(
         r'<script id="jsonLD" type="application/ld\+json">(.+?)</script>',
         html,
@@ -286,22 +436,50 @@ def extract_meny_live_price(html):
     payload = json.loads(match.group(1))
     offers = payload.get("offers") or {}
     if isinstance(offers, list):
-        offers = offers[0] if offers else {}
-    price = offers.get("price")
+        offer_list = [offer for offer in offers if isinstance(offer, dict)]
+    elif isinstance(offers, dict):
+        offer_list = [offers]
+    else:
+        offer_list = []
+
+    offer = offer_list[0] if offer_list else {}
+    price = offer.get("price")
     if price in (None, ""):
         return None
-    return float(str(price).replace(",", "."))
+    return {
+        "price": float(str(price).replace(",", ".")),
+        "campaign_text": extract_campaign_text_from_offer(offer)
+        or extract_campaign_text_from_html(html),
+    }
+
+
+def normalize_meny_product_url(url):
+    if not url:
+        return None
+    parts = urlsplit(url)
+    path = parts.path or ""
+    if "/Varer/" in path:
+        path = path.replace("/Varer/", "/varer/")
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 def fetch_live_meny_price(session, url):
     if not url or "meny.no" not in url.lower():
         return None
+    normalized_url = normalize_meny_product_url(url)
     try:
-        response = session.get(url, timeout=30)
+        response = session.get(normalized_url, timeout=30)
         response.raise_for_status()
-        return extract_meny_live_price(response.text)
+        return extract_meny_live_data(response.text)
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 404:
+            print(f"  live-pris mangler på Meny (utgått slug): {normalized_url}")
+            return None
+        print(f"  live-pris feilet for {normalized_url}: {exc}")
+        return None
     except Exception as exc:
-        print(f"  live-pris feilet for {url}: {exc}")
+        print(f"  live-pris feilet for {normalized_url}: {exc}")
         return None
 
 
@@ -395,9 +573,10 @@ def build_supabase_rows(products, histories, live_price_session):
         if meny and not score:
             stats["missing_score"] += 1
 
-        live_price = None
+        live_data = None
         if score:
-            live_price = fetch_live_meny_price(live_price_session, product.get("url"))
+            live_data = fetch_live_meny_price(live_price_session, product.get("url"))
+            live_price = live_data["price"] if live_data else None
             if live_price is None:
                 stats["missing_live_price"] += 1
                 if len(sample_missing_live) < 5:
@@ -408,6 +587,9 @@ def build_supabase_rows(products, histories, live_price_session):
                             "url": product.get("url"),
                         }
                     )
+
+        else:
+            live_price = None
 
         current_price = live_price if live_price is not None else base_price
         if current_price is None:
@@ -428,6 +610,7 @@ def build_supabase_rows(products, histories, live_price_session):
                 "current_price": round(float(current_price), 2),
                 "median_30d": median_30d,
                 "drop_pct": drop_pct,
+                "campaign_text": (live_data or {}).get("campaign_text"),
             }
         )
     stats["rows_built"] = len(rows)
