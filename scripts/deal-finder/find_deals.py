@@ -409,22 +409,6 @@ def extract_campaign_text_from_offer(offer):
     return None
 
 
-def extract_campaign_text_from_html(html):
-    snippets = []
-    for pattern in (
-        r"((?:kj[øo]p\s*\d+\s*(?:,?\s*)betal\s*(?:for\s*)?\d+)[^<\n]{0,30})",
-        r"((?:\d+\s*for\s*\d+)[^<\n]{0,30})",
-        r"((?:\+\s*\d+%?\s*trumf(?:-bonus)?) [^<\n]{0,30})",
-        r"((?:medlemspris)[^<\n]{0,40})",
-    ):
-        snippets.extend(re.findall(pattern, html, re.IGNORECASE))
-    for snippet in snippets:
-        promo = normalize_promo_text(snippet)
-        if promo:
-            return promo
-    return None
-
-
 def extract_meny_live_data(html):
     match = re.search(
         r'<script id="jsonLD" type="application/ld\+json">(.+?)</script>',
@@ -448,8 +432,7 @@ def extract_meny_live_data(html):
         return None
     return {
         "price": float(str(price).replace(",", ".")),
-        "campaign_text": extract_campaign_text_from_offer(offer)
-        or extract_campaign_text_from_html(html),
+        "campaign_text": extract_campaign_text_from_offer(offer),
     }
 
 
