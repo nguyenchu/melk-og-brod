@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -246,6 +246,9 @@ function SearchResults({
       keyExtractor={(p) => p.ean}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.listContent}
+      initialNumToRender={12}
+      maxToRenderPerBatch={12}
+      windowSize={7}
       ListEmptyComponent={
         searching ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
@@ -256,27 +259,7 @@ function SearchResults({
           </View>
         )
       }
-      renderItem={({ item }) => (
-        <Pressable style={styles.resultRow} onPress={() => onPick(item)}>
-          {item.image_url ? (
-            <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
-          ) : (
-            <View style={[styles.resultThumb, styles.resultThumbPlaceholder]}>
-              <Ionicons name="image-outline" size={18} color="#ccc" />
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.resultName} numberOfLines={2}>
-              {item.name}
-            </Text>
-            {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
-          </View>
-          {item.current_price != null && (
-            <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
-          )}
-          <Ionicons name="add" size={22} color="#E10A0A" />
-        </Pressable>
-      )}
+      renderItem={({ item }) => <SearchResultRow item={item} onPick={onPick} />}
       ListFooterComponent={
         results.length > 0 ? (
           manualAddCard
@@ -286,7 +269,39 @@ function SearchResults({
   );
 }
 
-function CartRow({
+const SearchResultRow = memo(function SearchResultRow({
+  item,
+  onPick,
+}: {
+  item: MenyProduct;
+  onPick: (p: MenyProduct) => void;
+}) {
+  return (
+    <View style={styles.resultRow}>
+      {item.image_url ? (
+        <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
+      ) : (
+        <View style={[styles.resultThumb, styles.resultThumbPlaceholder]}>
+          <Ionicons name="image-outline" size={18} color="#ccc" />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.resultName} numberOfLines={2}>
+          {item.name}
+        </Text>
+        {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
+      </View>
+      {item.current_price != null ? (
+        <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
+      ) : null}
+      <Pressable onPress={() => onPick(item)} hitSlop={8} style={styles.resultAddButton}>
+        <Ionicons name="add" size={22} color="#E10A0A" />
+      </Pressable>
+    </View>
+  );
+});
+
+const CartRow = memo(function CartRow({
   item,
   onToggle,
   onRemove,
@@ -372,7 +387,7 @@ function CartRow({
       </Pressable>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f7' },
@@ -429,6 +444,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 12,
     borderRadius: 10,
+  },
+  resultAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   resultThumb: {
     width: 44,
