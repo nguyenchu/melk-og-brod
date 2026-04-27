@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { addToCart } from '@/lib/cart';
+import { addToCart, useCart } from '@/lib/cart';
 import { fetchTopDeals } from '@/lib/deals';
 import type { MenyProduct } from '@/lib/types';
 
@@ -92,6 +92,15 @@ export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { items: cartItems } = useCart();
+
+  const cartByEan = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of cartItems) {
+      if (item.ean) map.set(item.ean, (map.get(item.ean) ?? 0) + item.quantity);
+    }
+    return map;
+  }, [cartItems]);
 
   const load = useCallback(async () => {
     try {
@@ -145,13 +154,15 @@ export default function DealsScreen() {
           </Text>
         ) : null
       }
-      renderItem={({ item }) => <DealRow item={item} />}
+      renderItem={({ item }) => (
+        <DealRow item={item} cartQuantity={item.ean ? cartByEan.get(item.ean) ?? 0 : 0} />
+      )}
     />
   );
 }
 
-function DealRow({ item }: { item: MenyProduct }) {
-  const [added, setAdded] = useState(false);
+function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: number }) {
+  const inCart = cartQuantity > 0;
 
   async function onAdd() {
     try {
@@ -160,9 +171,8 @@ function DealRow({ item }: { item: MenyProduct }) {
         ean: item.ean,
         image_url: item.image_url,
         price: item.current_price,
+        drop_pct: item.drop_pct,
       });
-      setAdded(true);
-      setTimeout(() => setAdded(false), 1500);
     } catch (e: any) {
       Alert.alert('Kunne ikke legge til', e.message);
     }
@@ -176,7 +186,7 @@ function DealRow({ item }: { item: MenyProduct }) {
   const unitPriceLabel = formatUnitPrice(item.current_price, weightKg, approximate);
 
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, inCart && styles.rowInCart]}>
       {item.image_url ? (
         <Image source={item.image_url} style={styles.thumb} contentFit="contain" />
       ) : (
@@ -206,18 +216,18 @@ function DealRow({ item }: { item: MenyProduct }) {
         {isLikelyCampaignText(item.campaign_text) ? <Text style={styles.campaign}>{item.campaign_text}</Text> : null}
         {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
-        <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
+        {inCart ? (
+          <Text style={styles.inCartLabel}>I lista ({cartQuantity})</Text>
+        ) : (
+          <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
+        )}
       </View>
       <View style={styles.right}>
         <View style={styles.dropBadge}>
           <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
         </View>
-        <Pressable onPress={onAdd} style={[styles.addBtn, added && styles.addBtnDone]}>
-          <Ionicons
-            name={added ? 'checkmark' : 'add'}
-            size={20}
-            color="#fff"
-          />
+        <Pressable onPress={onAdd} style={[styles.addBtn, inCart && styles.addBtnDone]}>
+          <Ionicons name={inCart ? 'checkmark' : 'add'} size={20} color="#fff" />
         </Pressable>
       </View>
     </View>
@@ -239,6 +249,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  rowInCart: { backgroundColor: '#F2FBF5', opacity: 0.92 },
+  inCartLabel: { fontSize: 12, color: '#2E8B57', fontWeight: '600', marginTop: 6 },
   thumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: '#f5f5f7' },
   thumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   body: { flex: 1 },

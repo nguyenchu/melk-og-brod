@@ -62,6 +62,7 @@ export default function CartScreen() {
       ean: p.ean,
       image_url: p.image_url,
       price: p.current_price,
+      drop_pct: p.drop_pct,
     });
     setQuery('');
     setResults([]);
@@ -328,12 +329,17 @@ function CartRow({
         <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>
           {item.name}
         </Text>
-        {item.price != null && (
-          <Text style={styles.cartPrice}>
-            {item.price.toFixed(2)} kr
-            {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
-          </Text>
-        )}
+        <View style={styles.cartPriceRow}>
+          {item.price != null && (
+            <Text style={styles.cartPrice}>
+              {item.price.toFixed(2)} kr
+              {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
+            </Text>
+          )}
+          {item.drop_pct != null && item.drop_pct >= 5 ? (
+            <Text style={styles.dealBadge}>−{Math.round(item.drop_pct)} %</Text>
+          ) : null}
+        </View>
       </View>
       <View style={styles.quantityControl}>
         <Pressable
@@ -457,7 +463,18 @@ const styles = StyleSheet.create({
   },
   cartName: { fontSize: 15, fontWeight: '500' },
   cartNameDone: { color: '#aaa', textDecorationLine: 'line-through' },
-  cartPrice: { fontSize: 13, color: '#666', marginTop: 2 },
+  cartPrice: { fontSize: 13, color: '#666' },
+  cartPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  dealBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#A85C00',
+    backgroundColor: '#FFF1D6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
   quantityControl: {
     flexDirection: 'row',
     alignItems: 'center',
