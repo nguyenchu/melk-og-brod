@@ -167,6 +167,50 @@ function expandSearchTerms(terms: string[]) {
   return [...expanded];
 }
 
+function tidyDisplayName(name: string): string {
+  return name
+    .replace(/[\s.]+$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
+  const counts = new Map<string, number>();
+  const prepared = products.map((product) => {
+    const clean = tidyDisplayName(product.name);
+    counts.set(clean, (counts.get(clean) ?? 0) + 1);
+    return { product, clean };
+  });
+  return prepared.map(({ product, clean }) => {
+    const collides = (counts.get(clean) ?? 0) > 1;
+    if (collides && product.ean) {
+      return { ...product, name: `${clean} · #${product.ean.slice(-4)}` };
+    }
+    if (clean !== product.name) return { ...product, name: clean };
+    return product;
+  });
+}
+
+function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
+  const seen = new Map<string, MenyProduct>();
+  for (const product of products) {
+    const nameKey = normalizeSearchText(product.name).replace(/\s+/g, ' ').trim();
+    const priceKey = product.current_price != null ? product.current_price.toFixed(2) : 'null';
+    const key = `${nameKey}|${priceKey}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, product);
+      continue;
+    }
+    const existingScore =
+      (existing.image_url ? 2 : 0) + (existing.brand ? 1 : 0) + (existing.drop_pct != null ? 1 : 0);
+    const candidateScore =
+      (product.image_url ? 2 : 0) + (product.brand ? 1 : 0) + (product.drop_pct != null ? 1 : 0);
+    if (candidateScore > existingScore) seen.set(key, product);
+  }
+  return [...seen.values()];
+}
+
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
   const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
@@ -175,10 +219,11 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
     .not('drop_pct', 'is', null)
     .gte('drop_pct', minDropPct)
     .gte('computed_at', freshestAllowed)
+    .not('vendor_url', 'ilike', '%kioskvarer%')
     .order('drop_pct', { ascending: false })
-    .limit(limit);
+    .limit(limit * 2);
   if (error) throw error;
-  return (data ?? []) as MenyProduct[];
+  return disambiguateDisplayNames(dedupeProducts((data ?? []) as MenyProduct[]).slice(0, limit));
 }
 
 export async function searchProducts(query: string, limit = 30): Promise<MenyProduct[]> {
@@ -213,7 +258,7 @@ export async function searchProducts(query: string, limit = 30): Promise<MenyPro
     .or(clauses)
     .limit(candidateLimit);
   if (error) throw error;
-  return ((data ?? []) as MenyProduct[])
+  const ranked = ((data ?? []) as MenyProduct[])
     .map((product) => ({ product, score: scoreProduct(product, terms) }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => {
@@ -222,6 +267,6 @@ export async function searchProducts(query: string, limit = 30): Promise<MenyPro
       if (b.product.current_price == null) return -1;
       return a.product.current_price - b.product.current_price;
     })
-    .slice(0, limit)
     .map((entry) => entry.product);
+  return disambiguateDisplayNames(dedupeProducts(ranked).slice(0, limit));
 }
