@@ -256,7 +256,7 @@ function SearchResults({
         )
       }
       renderItem={({ item }) => (
-        <Pressable style={styles.resultRow} onPress={() => onPick(item)}>
+        <View style={styles.resultRow}>
           {item.image_url ? (
             <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
           ) : (
@@ -273,8 +273,10 @@ function SearchResults({
           {item.current_price != null && (
             <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
           )}
-          <Ionicons name="add" size={22} color="#E10A0A" />
-        </Pressable>
+          <Pressable onPress={() => onPick(item)} hitSlop={8} style={styles.resultAddBtn}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </Pressable>
+        </View>
       )}
       ListFooterComponent={
         results.length > 0 ? (
@@ -436,6 +438,14 @@ const styles = StyleSheet.create({
   },
   resultName: { fontSize: 14, fontWeight: '500' },
   resultPrice: { fontSize: 14, color: '#E10A0A', fontWeight: '600' },
+  resultAddBtn: {
+    backgroundColor: '#E10A0A',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
   cartRow: {
     flexDirection: 'row',
