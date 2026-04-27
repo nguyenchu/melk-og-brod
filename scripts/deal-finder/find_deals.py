@@ -113,6 +113,17 @@ SEARCH_SUPPLEMENTS = [
     "hvetemel",
     "olje",
     "olivenolje",
+    "donald",
+    "pocket",
+    "ukeblad",
+    "magasin",
+    "kryssord",
+    "se og hør",
+    "aftenposten",
+    "dagbladet",
+    "klassekampen",
+    "finansavisen",
+    "avis",
 ]
 PROMO_KEYWORDS = (
     "trumf",
