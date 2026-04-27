@@ -17,6 +17,7 @@ export type CartItem = {
   ean: string | null;
   image_url: string | null;
   price: number | null;
+  drop_pct: number | null;
   quantity: number;
   checked: boolean;
   added_at: string;
