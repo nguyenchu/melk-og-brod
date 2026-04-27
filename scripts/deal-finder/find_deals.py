@@ -134,6 +134,8 @@ PROMO_KEYWORDS = (
     "for",
     "spar",
     "medlemspris",
+    "plukk",
+    "miks",
 )
 
 
@@ -356,6 +358,13 @@ def compact_text(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def decode_json_string(value):
+    try:
+        return json.loads(f'"{value}"')
+    except Exception:
+        return value
+
+
 def normalize_promo_text(value):
     text = compact_text(value)
     if not text:
@@ -420,6 +429,32 @@ def extract_campaign_text_from_offer(offer):
     return None
 
 
+def extract_campaign_text_from_page_state(html, url=None):
+    ean = None
+    if url:
+        match = re.search(r"(\d{8,14})(?:/?$)", url)
+        if match:
+            ean = match.group(1)
+
+    patterns = []
+    if ean:
+        patterns.extend(
+            [
+                rf'"ean":"{re.escape(ean)}".{{0,2500}}?"promotionDisplayName":"([^"]+)"',
+                rf'"promotionDisplayName":"([^"]+)".{{0,2500}}?"ean":"{re.escape(ean)}"',
+            ]
+        )
+
+    patterns.append(r'"promotionDisplayName":"([^"]+)"')
+
+    for pattern in patterns:
+        for raw_value in re.findall(pattern, html, re.IGNORECASE | re.DOTALL):
+            promo = normalize_promo_text(decode_json_string(raw_value))
+            if promo:
+                return promo
+    return None
+
+
 def extract_campaign_text_from_html(html):
     snippets = []
     for pattern in (
@@ -436,7 +471,7 @@ def extract_campaign_text_from_html(html):
     return None
 
 
-def extract_meny_live_data(html):
+def extract_meny_live_data(html, url=None):
     match = re.search(
         r'<script id="jsonLD" type="application/ld\+json">(.+?)</script>',
         html,
@@ -460,6 +495,7 @@ def extract_meny_live_data(html):
     return {
         "price": float(str(price).replace(",", ".")),
         "campaign_text": extract_campaign_text_from_offer(offer)
+        or extract_campaign_text_from_page_state(html, url)
         or extract_campaign_text_from_html(html),
     }
 
@@ -481,7 +517,7 @@ def fetch_live_meny_price(session, url):
     try:
         response = session.get(normalized_url, timeout=30)
         response.raise_for_status()
-        return extract_meny_live_data(response.text)
+        return extract_meny_live_data(response.text, normalized_url)
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 404:

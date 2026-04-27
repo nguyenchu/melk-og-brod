@@ -36,6 +36,14 @@ const STAPLE_PROFILES: Record<
   kaffe: {
     include: ['kaffe', 'filterkaffe', 'espressobonner'],
   },
+  bleie: {
+    include: ['bleie', 'bleier', 'buksebleie', 'lillego', 'libero', 'pampers'],
+    avoid: ['bleieposer', 'truseinnlegg', 'ammeinnlegg'],
+  },
+  bleier: {
+    include: ['bleie', 'bleier', 'buksebleie', 'lillego', 'libero', 'pampers'],
+    avoid: ['bleieposer', 'truseinnlegg', 'ammeinnlegg'],
+  },
   juice: {
     include: ['juice', 'appelsinjuice', 'eplejuice'],
   },
@@ -162,6 +170,15 @@ function expandSearchTerms(terms: string[]) {
   for (const term of terms) {
     for (const extra of STAPLE_PROFILES[term]?.include ?? []) {
       expanded.add(extra);
+    }
+    if (term.endsWith('er') && term.length > 4) {
+      expanded.add(term.slice(0, -2));
+    }
+    if (term.endsWith('e') && term.length > 4) {
+      expanded.add(`${term}r`);
+    }
+    if (term.endsWith('ie')) {
+      expanded.add(`${term}r`);
     }
   }
   return [...expanded];

@@ -82,7 +82,9 @@ function isLikelyCampaignText(value: string | null | undefined) {
 
   return (
     /\b\d+\s*for\s*\d+\b/.test(normalized) ||
+    /\b\d+\s*-\s*for\s*-\s*\d+\b/.test(normalized) ||
     /\bkj[øo]p\s*\d+.*betal/.test(normalized) ||
+    /\bplukk\s*(?:&|og)\s*miks\b/.test(normalized) ||
     /\bmedlemspris\b/.test(normalized) ||
     /\btrumf(?:-bonus)?\b/.test(normalized)
   );
