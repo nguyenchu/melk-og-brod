@@ -57,6 +57,15 @@ INCREMENTAL_MODE = os.environ.get("FIND_DEALS_MODE", "incremental").lower() != "
 PRICE_HISTORY_MAX_RETRIES = int(os.environ.get("PRICE_HISTORY_MAX_RETRIES", "6"))
 PRICE_HISTORY_RETRY_BASE_SECONDS = float(os.environ.get("PRICE_HISTORY_RETRY_BASE_SECONDS", "3"))
 MIN_EXPECTED_ROWS = int(os.environ.get("MIN_EXPECTED_ROWS", "2000"))
+MAX_NO_SCORE_LIVE_FETCHES = int(os.environ.get("MAX_NO_SCORE_LIVE_FETCHES", "250"))
+NO_SCORE_LIVE_KEYWORDS = tuple(
+    keyword.strip().lower()
+    for keyword in os.environ.get(
+        "NO_SCORE_LIVE_KEYWORDS",
+        "cotw,coffee of the world,kaffe,kapsel,espresso,lungo,filterkaffe,burn,energidrikk,jacobs,burgerbrød,skyr,oatly,tannkrem,toalettpapir,ketchup,pannekake,spaghetti,kotelett,iskrem,salat,frukt,grønnsak",
+    ).split(",")
+    if keyword.strip()
+)
 PROMO_KEYWORDS = (
     "trumf",
     "bonus",
@@ -73,6 +82,12 @@ PROMO_KEYWORDS = (
     "rabatt",
     "sommerpris",
 )
+
+# Known Meny product-page migrations where the old Kassalapp-linked page is 404,
+# but Meny still has a live replacement page with updated price/campaign info.
+MENY_URL_OVERRIDES_BY_EAN = {
+    "8718951312531": "https://meny.no/varer/personlige-artikler/tannpleie/tannkrem/colgate-tannkrem-8718951553224",
+}
 
 
 def kassal_session():
@@ -115,12 +130,17 @@ def init_db(conn):
             ean           TEXT PRIMARY KEY,
             current_price REAL,
             campaign_text TEXT,
+            fallback_campaign_text TEXT,
             fetched_at    INTEGER
         );
         """
     )
     try:
         conn.execute("ALTER TABLE products ADD COLUMN current_price REAL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE live_cache ADD COLUMN fallback_campaign_text TEXT")
     except sqlite3.OperationalError:
         pass
 
@@ -188,7 +208,7 @@ def load_live_cache(conn, ttl_hours):
     freshest_allowed = int(time.time() - ttl_hours * 60 * 60)
     rows = conn.execute(
         """
-        SELECT ean, current_price, campaign_text, fetched_at
+        SELECT ean, current_price, campaign_text, fallback_campaign_text, fetched_at
         FROM live_cache
         WHERE fetched_at >= ?
         """,
@@ -198,9 +218,10 @@ def load_live_cache(conn, ttl_hours):
         ean: {
             "price": current_price,
             "campaign_text": campaign_text,
+            "fallback_campaign_text": fallback_campaign_text,
             "fetched_at": fetched_at,
         }
-        for ean, current_price, campaign_text, fetched_at in rows
+        for ean, current_price, campaign_text, fallback_campaign_text, fetched_at in rows
     }
 
 
@@ -209,8 +230,8 @@ def persist_live_cache(conn, live_rows):
         return
     conn.executemany(
         """
-        INSERT OR REPLACE INTO live_cache (ean, current_price, campaign_text, fetched_at)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO live_cache (ean, current_price, campaign_text, fallback_campaign_text, fetched_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
         live_rows,
     )
@@ -428,6 +449,15 @@ def compact_text(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def extract_ean(value):
+    match = re.search(r"(\d{8,14})(?:/?$)", value or "")
+    return match.group(1) if match else None
+
+
+def normalize_identity_text(value):
+    return re.sub(r"[^a-z0-9]+", " ", compact_text(value).lower()).strip()
+
+
 def product_string_candidates(value):
     if isinstance(value, str):
         text = compact_text(value)
@@ -466,9 +496,10 @@ def canonicalize_promo(text):
     if m:
         n, k = m.group(1), m.group(2)
         rest = text[m.end() : m.end() + 60]
-        ctx = re.match(r"\s*p[åa]\s+([a-zæøå]+(?:\s+[a-zæøå]+)?)", rest, re.IGNORECASE)
+        ctx = re.match(r"\s*p[åa]\s+([a-zæøå]+(?:\s+[a-zæøå]+){0,5})", rest, re.IGNORECASE)
         if ctx:
-            return f"{n} for {k} på {ctx.group(1).strip().lower()}"
+            context = re.sub(r"\s{2,}", " ", ctx.group(1).strip().lower())
+            return f"{n} for {k} på {context}"
         return f"{n} for {k}"
 
     m = re.search(r"kj[øo]p\s*(\d+)[,\s]+betal\s*(?:for\s*)?(\d+)", text, re.IGNORECASE)
@@ -538,6 +569,9 @@ def normalize_promo_text(value):
             "api/auth",
             "login",
             "token",
+            "rainforest_alliance",
+            "fairtrade",
+            "utz",
         )
     ):
         return None
@@ -563,6 +597,37 @@ def merge_promo_labels(*parts):
     if not merged:
         return None
     return " · ".join(merged[:2])
+
+
+def pagewide_promo_aliases(title, brand, url=None):
+    slug = normalize_identity_text(url or "")
+    title_norm = normalize_identity_text(title)
+    brand_norm = normalize_identity_text(brand)
+    aliases = set()
+
+    if "cotw" in slug or "cotw" in title_norm or "cotw" in brand_norm:
+        aliases.update({"cotw", "coffee of the world"})
+    if "jacobs" in slug or "jacobs" in title_norm or "jacobs" in brand_norm:
+        aliases.update({"jacobs", "jacobs utvalgte"})
+    if "burn" in slug or "burn" in title_norm or "burn" in brand_norm:
+        aliases.add("burn")
+
+    return aliases
+
+
+def should_fetch_live_without_score(product):
+    haystack = " ".join(
+        compact_text(value).lower()
+        for value in (
+            product.get("name"),
+            product.get("brand"),
+            product.get("url"),
+        )
+        if value
+    )
+    if not haystack:
+        return False
+    return any(keyword in haystack for keyword in NO_SCORE_LIVE_KEYWORDS)
 
 
 def extract_campaign_text_from_offer(offer):
@@ -691,6 +756,50 @@ def extract_campaign_text_from_page_state(html, url=None):
     return None
 
 
+def extract_pagewide_campaign_text(html, title, brand, url=None):
+    aliases = pagewide_promo_aliases(title, brand, url)
+    if not aliases:
+        return None
+
+    promo_fields = (
+        "promoMarketTextLong",
+        "marketTextLong",
+        "promoMarketText",
+        "marketText",
+        "promotionDisplayName",
+        "promoName",
+    )
+
+    found = []
+    for field in promo_fields:
+        for pattern in [rf'\\"{field}\\":\\"([^\\]+)\\"', rf'"{field}":"([^"]+)"']:
+            for raw_value in re.findall(pattern, html, re.IGNORECASE | re.DOTALL):
+                decoded = decode_json_string(raw_value)
+                normalized = normalize_identity_text(decoded)
+                if not normalized:
+                    continue
+                if any(alias and alias in normalized for alias in aliases):
+                    found.append(decoded)
+
+    cleaned = []
+    seen = set()
+    for value in found:
+        promo = normalize_promo_text(value)
+        if not promo:
+            continue
+        key = promo.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(promo)
+
+    if not cleaned:
+        return None
+
+    cleaned.sort(key=lambda value: (len(value), "plukk" in value.lower(), "for 2" in value.lower()), reverse=True)
+    return cleaned[0]
+
+
 def extract_price_from_page_state(html, url=None):
     ean = None
     if url:
@@ -757,16 +866,31 @@ def extract_meny_live_data(html, url=None):
         price = extract_price_from_page_state(html, url)
     if price in (None, ""):
         return None
+
+    title = offer.get("name") or ""
+    brand = ""
+    if not title and match:
+        try:
+            payload = json.loads(match.group(1))
+            title = payload.get("name") or ""
+            brand = ((payload.get("brand") or {}).get("name") if isinstance(payload.get("brand"), dict) else "") or ""
+        except Exception:
+            pass
+
     return {
         "price": float(str(price).replace(",", ".")),
         "campaign_text": extract_campaign_text_from_offer(offer)
         or extract_campaign_text_from_page_state(html, url),
+        "fallback_campaign_text": extract_pagewide_campaign_text(html, title, brand, url),
     }
 
 
 def normalize_meny_product_url(url):
     if not url:
         return None
+    override = MENY_URL_OVERRIDES_BY_EAN.get(extract_ean(url))
+    if override:
+        return override
     parts = urlsplit(url)
     path = parts.path or ""
     if "/Varer/" in path:
@@ -850,20 +974,27 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         "missing_store_match": 0,
         "missing_score": 0,
         "missing_live_price": 0,
+        "stale_meny_rows_skipped": 0,
         "rows_built": 0,
         "live_cache_hits": 0,
         "live_fetches": 0,
+        "no_score_live_fetches": 0,
+        "no_score_live_skipped": 0,
     }
     sample_store_names = []
     sample_missing_store = []
     sample_missing_live = []
     total_products = len(products)
+    no_score_live_fetches = 0
     for index, product in enumerate(products, start=1):
         ean = product.get("ean")
         if not ean:
             continue
         history = histories.get(ean) or {}
+        product_campaign_text = extract_campaign_text_from_product(product)
         base_price = product.get("current_price")
+        product_url = product.get("url") or ""
+        is_meny_url = "meny.no" in product_url.lower()
         if base_price is None:
             stats["missing_base_price"] += 1
 
@@ -889,20 +1020,42 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         if meny and not score:
             stats["missing_score"] += 1
 
-        live_data = None
-        if score:
-            live_data = live_cache_by_ean.get(ean)
+        live_data = live_cache_by_ean.get(ean)
+        attempted_live_fetch = False
+        wants_live_without_score = (
+            not score
+            and not product_campaign_text
+            and no_score_live_fetches < MAX_NO_SCORE_LIVE_FETCHES
+            and should_fetch_live_without_score(product)
+        )
+        needs_live_data = bool(score) or wants_live_without_score
+        if live_data is not None and not product_campaign_text:
+            cached_campaign = merge_promo_labels(
+                live_data.get("campaign_text"),
+                live_data.get("fallback_campaign_text"),
+            )
+            if not cached_campaign:
+                live_data = None
+        if not score and not product_campaign_text and not needs_live_data:
+            stats["no_score_live_skipped"] += 1
+
+        if needs_live_data:
             if live_data is not None:
                 stats["live_cache_hits"] += 1
             else:
+                attempted_live_fetch = True
                 live_data = fetch_live_meny_price(live_price_session, product.get("url"))
                 stats["live_fetches"] += 1
+                if not score:
+                    no_score_live_fetches += 1
+                    stats["no_score_live_fetches"] += 1
                 if live_data is not None:
                     live_cache_rows.append(
                         (
                             ean,
                             float(live_data["price"]),
                             live_data.get("campaign_text"),
+                            live_data.get("fallback_campaign_text"),
                             int(time.time()),
                         )
                     )
@@ -921,13 +1074,18 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         else:
             live_price = None
 
+        if attempted_live_fetch and live_data is None and is_meny_url:
+            stats["stale_meny_rows_skipped"] += 1
+            continue
+
         current_price = live_price if live_price is not None else base_price
         if current_price is None:
             continue
 
         campaign_text = merge_promo_labels(
             (live_data or {}).get("campaign_text"),
-            extract_campaign_text_from_product(product),
+            (live_data or {}).get("fallback_campaign_text"),
+            product_campaign_text,
         )
         drop_pct = None
         median_30d = None
@@ -1035,10 +1193,13 @@ def main():
     print(f"  Historier mottatt: {stats['total_histories']}")
     print(f"  Live-cache treff: {stats['live_cache_hits']}")
     print(f"  Live-priser hentet fra Meny: {stats['live_fetches']}")
+    print(f"  Live-hentinger uten historikkscore: {stats['no_score_live_fetches']}")
+    print(f"  Varer uten score hoppet over for live-oppslag: {stats['no_score_live_skipped']}")
     print(f"  Mangler grunnpris: {stats['missing_base_price']}")
     print(f"  Ingen historikkmatch for {MENY_HISTORY_STORE}: {stats['missing_store_match']}")
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
+    print(f"  Skippet stale Meny-rader med død produktside: {stats['stale_meny_rows_skipped']}")
     print(f"  Ferdige rader: {stats['rows_built']}")
     if stats["rows_built"] < MIN_EXPECTED_ROWS:
         print(
