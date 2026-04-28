@@ -86,7 +86,8 @@ function isLikelyCampaignText(value: string | null | undefined) {
     /\bkj[øo]p\s*\d+.*betal/.test(normalized) ||
     /\bplukk\s*(?:&|og)\s*miks\b/.test(normalized) ||
     /\bmedlemspris\b/.test(normalized) ||
-    /\btrumf(?:-bonus)?\b/.test(normalized)
+    /\btrumf(?:-bonus)?\b/.test(normalized) ||
+    /\bryddesalg\b/.test(normalized)
   );
 }
 
