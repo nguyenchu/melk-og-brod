@@ -18,6 +18,7 @@ export type CartItem = {
   image_url: string | null;
   price: number | null;
   drop_pct: number | null;
+  campaign_text: string | null;
   quantity: number;
   checked: boolean;
   added_at: string;

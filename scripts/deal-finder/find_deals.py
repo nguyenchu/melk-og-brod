@@ -25,14 +25,20 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+SCRIPT_DIR = Path(__file__).parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from search_supplements import SEARCH_SUPPLEMENT_GROUPS, flattened_search_supplements
+
+load_dotenv(SCRIPT_DIR / ".env")
 
 API_BASE = "https://kassal.app/api/v1"
 API_KEY = os.environ.get("KASSALAPP_API_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
-DB_PATH = Path(__file__).parent / "deals.db"
+DB_PATH = SCRIPT_DIR / "deals.db"
 
 PRODUCT_SAMPLE_SIZE = int(os.environ.get("PRODUCT_SAMPLE_SIZE", "1000"))
 HISTORY_DAYS = 30
@@ -42,89 +48,15 @@ CATALOG_PAGE_SIZE = 100
 MAX_CATALOG_PAGES = int(os.environ.get("MAX_CATALOG_PAGES", "250"))
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "0"))
 PRICE_HISTORY_CHUNK_SIZE = int(os.environ.get("PRICE_HISTORY_CHUNK_SIZE", "100"))
-PRICE_HISTORY_WORKERS = int(os.environ.get("PRICE_HISTORY_WORKERS", "4"))
-MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "5"))
-SEARCH_SUPPLEMENTS = [
-    "egg",
-    "10pk egg",
-    "12pk egg",
-    "bakketun egg",
-    "frittgaende egg",
-    "prior egg",
-    "frokostegg",
-    "melk",
-    "tinemelk",
-    "lettmelk",
-    "helmelk",
-    "skummetmelk",
-    "q melk",
-    "smør",
-    "meierismør",
-    "lettsmør",
-    "lurpak",
-    "brelett",
-    "bremykt",
-    "soyasmør",
-    "ost",
-    "norvegia",
-    "jarlsberg",
-    "gulost",
-    "hvitost",
-    "cheddar",
-    "mozzarella",
-    "brød",
-    "grovbrød",
-    "kneippbrød",
-    "toastbrød",
-    "burgerbrød",
-    "rundstykker",
-    "yoghurt",
-    "skyr",
-    "banan",
-    "eple",
-    "appelsin",
-    "tomat",
-    "agurk",
-    "potet",
-    "gulrot",
-    "løk",
-    "paprika",
-    "salat",
-    "kjøttdeig",
-    "kylling",
-    "kyllingfilet",
-    "laks",
-    "torsk",
-    "pasta",
-    "spagetti",
-    "ris",
-    "havregryn",
-    "müsli",
-    "frokostblanding",
-    "juice",
-    "appelsinjuice",
-    "eplejuice",
-    "kaffe",
-    "filterkaffe",
-    "te",
-    "sukker",
-    "salt",
-    "mel",
-    "hvetemel",
-    "olje",
-    "olivenolje",
-    "donald",
-    "pocket",
-    "ukeblad",
-    "magasin",
-    "kryssord",
-    "se og hør",
-    "aftenposten",
-    "dagbladet",
-    "klassekampen",
-    "finansavisen",
-    "avis",
-]
+PRICE_HISTORY_WORKERS = int(os.environ.get("PRICE_HISTORY_WORKERS", "2"))
+MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "20"))
+SEARCH_SUPPLEMENTS = flattened_search_supplements()
+PRODUCT_CACHE_MAX_AGE_HOURS = int(os.environ.get("PRODUCT_CACHE_MAX_AGE_HOURS", "12"))
+LIVE_CACHE_TTL_HOURS = int(os.environ.get("LIVE_CACHE_TTL_HOURS", "6"))
+INCREMENTAL_MODE = os.environ.get("FIND_DEALS_MODE", "incremental").lower() != "full"
+PRICE_HISTORY_MAX_RETRIES = int(os.environ.get("PRICE_HISTORY_MAX_RETRIES", "6"))
+PRICE_HISTORY_RETRY_BASE_SECONDS = float(os.environ.get("PRICE_HISTORY_RETRY_BASE_SECONDS", "3"))
+MIN_EXPECTED_ROWS = int(os.environ.get("MIN_EXPECTED_ROWS", "2000"))
 PROMO_KEYWORDS = (
     "trumf",
     "bonus",
@@ -136,6 +68,10 @@ PROMO_KEYWORDS = (
     "medlemspris",
     "plukk",
     "miks",
+    "tilbud",
+    "kampanje",
+    "rabatt",
+    "sommerpris",
 )
 
 
@@ -165,6 +101,7 @@ def init_db(conn):
             brand       TEXT,
             image_url   TEXT,
             vendor_url  TEXT,
+            current_price REAL,
             fetched_at  INTEGER
         );
         CREATE TABLE IF NOT EXISTS prices (
@@ -174,8 +111,110 @@ def init_db(conn):
             price       REAL,
             PRIMARY KEY (ean, store, date)
         );
+        CREATE TABLE IF NOT EXISTS live_cache (
+            ean           TEXT PRIMARY KEY,
+            current_price REAL,
+            campaign_text TEXT,
+            fetched_at    INTEGER
+        );
         """
     )
+    try:
+        conn.execute("ALTER TABLE products ADD COLUMN current_price REAL")
+    except sqlite3.OperationalError:
+        pass
+
+
+def load_cached_products(conn, max_age_hours):
+    freshest_allowed = int(time.time() - max_age_hours * 60 * 60)
+    rows = conn.execute(
+        """
+        SELECT ean, name, brand, image_url, vendor_url, current_price, fetched_at
+        FROM products
+        WHERE fetched_at >= ?
+        """,
+        (freshest_allowed,),
+    ).fetchall()
+    products = []
+    for ean, name, brand, image_url, vendor_url, current_price, fetched_at in rows:
+        products.append(
+            {
+                "ean": ean,
+                "name": name,
+                "brand": brand,
+                "image": image_url,
+                "url": vendor_url,
+                "current_price": current_price,
+                "fetched_at": fetched_at,
+            }
+        )
+    return products
+
+
+def load_cached_histories(conn, eans, today):
+    if not eans:
+        return {}, set()
+    placeholders = ",".join("?" for _ in eans)
+    rows = conn.execute(
+        f"""
+        SELECT ean, store, date, price
+        FROM prices
+        WHERE ean IN ({placeholders})
+        """,
+        eans,
+    ).fetchall()
+
+    points_by_ean = {}
+    for ean, store, date, price in rows:
+        points_by_ean.setdefault(ean, []).append(
+            {
+                "store": store,
+                "store_name": store,
+                "date": date,
+                "price": price,
+            }
+        )
+
+    histories = {}
+    fresh_eans = set()
+    for ean, points in points_by_ean.items():
+        histories[ean] = {"price_history": points}
+        if any((point.get("date") or "") == today for point in points):
+            fresh_eans.add(ean)
+    return histories, fresh_eans
+
+
+def load_live_cache(conn, ttl_hours):
+    freshest_allowed = int(time.time() - ttl_hours * 60 * 60)
+    rows = conn.execute(
+        """
+        SELECT ean, current_price, campaign_text, fetched_at
+        FROM live_cache
+        WHERE fetched_at >= ?
+        """,
+        (freshest_allowed,),
+    ).fetchall()
+    return {
+        ean: {
+            "price": current_price,
+            "campaign_text": campaign_text,
+            "fetched_at": fetched_at,
+        }
+        for ean, current_price, campaign_text, fetched_at in rows
+    }
+
+
+def persist_live_cache(conn, live_rows):
+    if not live_rows:
+        return
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO live_cache (ean, current_price, campaign_text, fetched_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        live_rows,
+    )
+    conn.commit()
 
 
 def product_priority(product):
@@ -252,36 +291,67 @@ def fetch_products(s):
             break
         time.sleep(RATE_LIMIT_SLEEP)
 
+    total_queries = sum(len(items) for items in SEARCH_SUPPLEMENT_GROUPS.values())
+    query_index = 0
     print("Supplerer katalog med målrettede søk...")
-    for query in SEARCH_SUPPLEMENTS:
-        response = s.get(
-            f"{API_BASE}/products",
-            params={"search": query, "size": 100, "page": 1},
-        )
-        if not response.ok:
-            print(f"  [søk {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
+    for group_name, queries in SEARCH_SUPPLEMENT_GROUPS.items():
+        print(f"  Gruppe {group_name}: {len(queries)} søk")
+        group_added = 0
+        for query in queries:
+            query_index += 1
+            response = s.get(
+                f"{API_BASE}/products",
+                params={"search": query, "size": 100, "page": 1},
+            )
+            if not response.ok:
+                print(f"    [{query_index}/{total_queries} {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
+                time.sleep(RATE_LIMIT_SLEEP)
+                continue
+            batch = response.json().get("data") or []
+            added = 0
+            for product in batch:
+                if merge_product(by_ean, product):
+                    added += 1
+            group_added += added
+            print(f"    [{query_index}/{total_queries} {query!r}] +{added} Meny-varer (total {len(by_ean)})")
             time.sleep(RATE_LIMIT_SLEEP)
-            continue
-        batch = response.json().get("data") or []
-        added = 0
-        for product in batch:
-            if merge_product(by_ean, product):
-                added += 1
-        print(f"  [søk {query!r}] +{added} Meny-varer (total {len(by_ean)})")
-        time.sleep(RATE_LIMIT_SLEEP)
+        print(f"  Ferdig med {group_name}: +{group_added} nye varer")
     return list(by_ean.values())
 
 
 def fetch_prices_bulk(s, eans):
+    if not eans:
+        return {}
+
     def fetch_chunk(chunk):
-        response = requests.post(
-            f"{API_BASE}/products/prices-bulk",
-            headers={"Authorization": f"Bearer {API_KEY}"},
-            json={"eans": chunk, "days": HISTORY_DAYS, "aggregation": "avg"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json().get("data") or {}
+        attempt = 0
+        while True:
+            attempt += 1
+            response = requests.post(
+                f"{API_BASE}/products/prices-bulk",
+                headers={"Authorization": f"Bearer {API_KEY}"},
+                json={"eans": chunk, "days": HISTORY_DAYS, "aggregation": "avg"},
+                timeout=30,
+            )
+            if response.ok:
+                return response.json().get("data") or {}
+
+            if response.status_code == 429 and attempt < PRICE_HISTORY_MAX_RETRIES:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait_seconds = max(float(retry_after), PRICE_HISTORY_RETRY_BASE_SECONDS)
+                    except ValueError:
+                        wait_seconds = PRICE_HISTORY_RETRY_BASE_SECONDS * attempt
+                else:
+                    wait_seconds = PRICE_HISTORY_RETRY_BASE_SECONDS * attempt
+                print(
+                    f"  historikk 429 for chunk på {len(chunk)} EAN-er, venter {wait_seconds:.1f}s (forsøk {attempt}/{PRICE_HISTORY_MAX_RETRIES})"
+                )
+                time.sleep(wait_seconds)
+                continue
+
+            response.raise_for_status()
 
     chunks = [eans[i : i + PRICE_HISTORY_CHUNK_SIZE] for i in range(0, len(eans), PRICE_HISTORY_CHUNK_SIZE)]
     histories = {}
@@ -358,6 +428,23 @@ def compact_text(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def product_string_candidates(value):
+    if isinstance(value, str):
+        text = compact_text(value)
+        return [text] if text else []
+    if isinstance(value, dict):
+        strings = []
+        for item in value.values():
+            strings.extend(product_string_candidates(item))
+        return strings
+    if isinstance(value, list):
+        strings = []
+        for item in value:
+            strings.extend(product_string_candidates(item))
+        return strings
+    return []
+
+
 def decode_json_string(value):
     try:
         return json.loads(f'"{value}"')
@@ -401,6 +488,19 @@ def canonicalize_promo(text):
 
     if re.search(r"\bmedlemspris\b", text, re.IGNORECASE):
         return "Medlemspris"
+
+    m = re.search(r"([+\-−]?\d+)\s*%\s*rabatt", text, re.IGNORECASE)
+    if m:
+        pct = m.group(1).replace("-", "−")
+        if not pct.startswith(("−", "+")):
+            pct = f"−{pct}"
+        return f"{pct}% rabatt"
+
+    if re.search(r"\bfast\s+sommerpris\b", text, re.IGNORECASE):
+        return "Fast sommerpris"
+
+    if re.search(r"\btilbud\b", text, re.IGNORECASE):
+        return "Tilbud"
 
     m = re.search(r"ryddesalg[^%]{0,40}?[\-–−]\s*(\d+)\s*%", text, re.IGNORECASE)
     if m:
@@ -448,11 +548,33 @@ def normalize_promo_text(value):
     return text[:120]
 
 
+def merge_promo_labels(*parts):
+    merged = []
+    seen = set()
+    for part in parts:
+        normalized = normalize_promo_text(part)
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(normalized)
+    if not merged:
+        return None
+    return " · ".join(merged[:2])
+
+
 def extract_campaign_text_from_offer(offer):
     if not isinstance(offer, dict):
         return None
 
     candidates = [
+        offer.get("promoMarketTextLong"),
+        offer.get("marketTextLong"),
+        offer.get("promoMarketText"),
+        offer.get("marketText"),
+        offer.get("promotionDisplayName"),
         offer.get("name"),
         offer.get("description"),
         offer.get("category"),
@@ -483,6 +605,35 @@ def extract_campaign_text_from_offer(offer):
     return None
 
 
+def extract_campaign_text_from_product(product):
+    if not isinstance(product, dict):
+        return None
+
+    priority_candidates = [
+        product.get("campaign_text"),
+        product.get("campaignText"),
+        product.get("promoMarketTextLong"),
+        product.get("marketTextLong"),
+        product.get("promotionDisplayName"),
+        product.get("promoMarketText"),
+        product.get("marketText"),
+        product.get("promoName"),
+        product.get("offerDescription"),
+        product.get("description"),
+        product.get("name"),
+    ]
+    for candidate in priority_candidates:
+        promo = normalize_promo_text(candidate)
+        if promo:
+            return promo
+
+    for candidate in product_string_candidates(product):
+        promo = normalize_promo_text(candidate)
+        if promo:
+            return promo
+    return None
+
+
 def extract_campaign_text_from_page_state(html, url=None):
     """Pull the promo label associated with our EAN from the Next.js page state.
 
@@ -497,25 +648,88 @@ def extract_campaign_text_from_page_state(html, url=None):
         if match:
             ean = match.group(1)
 
-    promo_fields = ("promoMarketTextLong", "promotionDisplayName", "promoName")
+    search_scopes = [html]
+    if ean:
+        scoped = []
+        for pattern in [rf'\\"ean\\":\\"{re.escape(ean)}\\"', rf'"ean":"{re.escape(ean)}"']:
+            for match in re.finditer(pattern, html):
+                start = max(0, match.start() - 1500)
+                end = min(len(html), match.end() + 6000)
+                scoped.append(html[start:end])
+        if scoped:
+            search_scopes = scoped
 
+    promo_fields = (
+        "promoMarketTextLong",
+        "marketTextLong",
+        "promoMarketText",
+        "marketText",
+        "promotionDisplayName",
+        "campaignText",
+        "campaign_text",
+        "offerDescription",
+        "offerText",
+        "promoName",
+    )
+
+    local_patterns = []
+    for field in promo_fields:
+        local_patterns.extend(
+            [
+                rf'\\"{field}\\":\\"([^\\]+)\\"',
+                rf'"{field}":"([^"]+)"',
+            ]
+        )
+
+    for scope in search_scopes:
+        for pattern in local_patterns:
+            for raw_value in re.findall(pattern, scope, re.IGNORECASE | re.DOTALL):
+                promo = normalize_promo_text(decode_json_string(raw_value))
+                if promo:
+                    return promo
+
+    return None
+
+
+def extract_price_from_page_state(html, url=None):
+    ean = None
+    if url:
+        match = re.search(r"(\d{8,14})(?:/?$)", url)
+        if match:
+            ean = match.group(1)
+
+    price_fields = ("pricePerUnit", "calcPricePerUnit", "promoCalcPricePerUnit")
     patterns = []
     if ean:
-        for field in promo_fields:
+        for field in price_fields:
             patterns.extend(
                 [
-                    rf'\\"ean\\":\\"{re.escape(ean)}\\".{{0,15000}}?\\"{field}\\":\\"([^\\]+)\\"',
-                    rf'\\"{field}\\":\\"([^\\]+)\\".{{0,15000}}?\\"ean\\":\\"{re.escape(ean)}\\"',
-                    rf'"ean":"{re.escape(ean)}".{{0,15000}}?"{field}":"([^"]+)"',
-                    rf'"{field}":"([^"]+)".{{0,15000}}?"ean":"{re.escape(ean)}"',
+                    rf'\\"ean\\":\\"{re.escape(ean)}\\".{{0,15000}}?\\"{field}\\":([0-9]+(?:\.[0-9]+)?)',
+                    rf'\\"{field}\\":([0-9]+(?:\.[0-9]+)?).{{0,15000}}?\\"ean\\":\\"{re.escape(ean)}\\"',
+                    rf'"ean":"{re.escape(ean)}".{{0,15000}}?"{field}":([0-9]+(?:\.[0-9]+)?)',
+                    rf'"{field}":([0-9]+(?:\.[0-9]+)?).{{0,15000}}?"ean":"{re.escape(ean)}"',
                 ]
             )
 
     for pattern in patterns:
-        for raw_value in re.findall(pattern, html, re.IGNORECASE | re.DOTALL):
-            promo = normalize_promo_text(decode_json_string(raw_value))
-            if promo:
-                return promo
+        match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+
+    meta_patterns = [
+        r"hos MENY -\s*([0-9]+(?:[,.][0-9]+)?)\s*kr",
+        r'"price"\s*:\s*"([0-9]+(?:[,.][0-9]+)?)"',
+    ]
+    for pattern in meta_patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1).replace(",", "."))
+            except ValueError:
+                pass
     return None
 
 
@@ -525,19 +739,22 @@ def extract_meny_live_data(html, url=None):
         html,
         re.DOTALL,
     )
-    if not match:
-        return None
-    payload = json.loads(match.group(1))
-    offers = payload.get("offers") or {}
-    if isinstance(offers, list):
-        offer_list = [offer for offer in offers if isinstance(offer, dict)]
-    elif isinstance(offers, dict):
-        offer_list = [offers]
-    else:
-        offer_list = []
+    offer = {}
+    price = None
+    if match:
+        payload = json.loads(match.group(1))
+        offers = payload.get("offers") or {}
+        if isinstance(offers, list):
+          offer_list = [offer for offer in offers if isinstance(offer, dict)]
+        elif isinstance(offers, dict):
+          offer_list = [offers]
+        else:
+          offer_list = []
+        offer = offer_list[0] if offer_list else {}
+        price = offer.get("price")
 
-    offer = offer_list[0] if offer_list else {}
-    price = offer.get("price")
+    if price in (None, ""):
+        price = extract_price_from_page_state(html, url)
     if price in (None, ""):
         return None
     return {
@@ -622,8 +839,10 @@ def push_to_supabase(rows):
     print(f"Pushet {pushed} rader til Supabase.")
 
 
-def build_supabase_rows(products, histories, live_price_session):
+def build_supabase_rows(products, histories, live_price_session, live_cache_by_ean=None, live_cache_rows=None):
     rows = []
+    live_cache_by_ean = live_cache_by_ean or {}
+    live_cache_rows = live_cache_rows if live_cache_rows is not None else []
     stats = {
         "total_products": len(products),
         "total_histories": len(histories),
@@ -632,11 +851,14 @@ def build_supabase_rows(products, histories, live_price_session):
         "missing_score": 0,
         "missing_live_price": 0,
         "rows_built": 0,
+        "live_cache_hits": 0,
+        "live_fetches": 0,
     }
     sample_store_names = []
     sample_missing_store = []
     sample_missing_live = []
-    for product in products:
+    total_products = len(products)
+    for index, product in enumerate(products, start=1):
         ean = product.get("ean")
         if not ean:
             continue
@@ -669,7 +891,21 @@ def build_supabase_rows(products, histories, live_price_session):
 
         live_data = None
         if score:
-            live_data = fetch_live_meny_price(live_price_session, product.get("url"))
+            live_data = live_cache_by_ean.get(ean)
+            if live_data is not None:
+                stats["live_cache_hits"] += 1
+            else:
+                live_data = fetch_live_meny_price(live_price_session, product.get("url"))
+                stats["live_fetches"] += 1
+                if live_data is not None:
+                    live_cache_rows.append(
+                        (
+                            ean,
+                            float(live_data["price"]),
+                            live_data.get("campaign_text"),
+                            int(time.time()),
+                        )
+                    )
             live_price = live_data["price"] if live_data else None
             if live_price is None:
                 stats["missing_live_price"] += 1
@@ -689,11 +925,15 @@ def build_supabase_rows(products, histories, live_price_session):
         if current_price is None:
             continue
 
+        campaign_text = merge_promo_labels(
+            (live_data or {}).get("campaign_text"),
+            extract_campaign_text_from_product(product),
+        )
         drop_pct = None
         median_30d = None
-        if score and live_price is not None:
+        if score and current_price is not None:
             median_30d = score["median"]
-            drop_pct = round((score["median"] - live_price) / score["median"] * 100, 2)
+            drop_pct = round((score["median"] - float(current_price)) / score["median"] * 100, 2)
         rows.append(
             {
                 "ean": ean,
@@ -704,10 +944,13 @@ def build_supabase_rows(products, histories, live_price_session):
                 "current_price": round(float(current_price), 2),
                 "median_30d": median_30d,
                 "drop_pct": drop_pct,
-                "campaign_text": (live_data or {}).get("campaign_text"),
+                "campaign_text": campaign_text,
             }
         )
+        if index % 100 == 0 or index == total_products:
+            print(f"  bygger rader {index}/{total_products}", end="\r")
     stats["rows_built"] = len(rows)
+    print(" " * 60, end="\r")
     return rows, stats, sample_store_names, sample_missing_store, sample_missing_live
 
 
@@ -721,8 +964,24 @@ def main():
     init_db(conn)
 
     print(f"Bruker historikkilde: {MENY_HISTORY_STORE}")
-    print("Synker Meny-katalog fra Kassalapp...")
-    products = fetch_products(s)
+    print(f"Kjører modus: {'inkrementell' if INCREMENTAL_MODE else 'full'}")
+    if INCREMENTAL_MODE:
+        products = load_cached_products(conn, PRODUCT_CACHE_MAX_AGE_HOURS)
+        if products:
+            products_with_base_price = sum(1 for product in products if product.get("current_price") is not None)
+            if products_with_base_price == 0:
+                print("Produktcache mangler current_price — gjør full katalogsync for å bygge opp ny cache")
+                products = fetch_products(s)
+            else:
+                print(
+                    f"Bruker lokal produktcache ({len(products)} varer, {products_with_base_price} med grunnpris, maks {PRODUCT_CACHE_MAX_AGE_HOURS} t gammel)"
+                )
+        else:
+            print("Ingen fersk produktcache funnet — gjør full katalogsync")
+            products = fetch_products(s)
+    else:
+        print("Synker Meny-katalog fra Kassalapp...")
+        products = fetch_products(s)
     print(f"  fikk {len(products)}")
 
     eans = []
@@ -733,35 +992,61 @@ def main():
             continue
         eans.append(ean)
         conn.execute(
-            "INSERT OR REPLACE INTO products(ean,name,brand,image_url,vendor_url,fetched_at) VALUES(?,?,?,?,?,?)",
-            (ean, p.get("name"), p.get("brand"), p.get("image"), p.get("url"), now),
+            "INSERT OR REPLACE INTO products(ean,name,brand,image_url,vendor_url,current_price,fetched_at) VALUES(?,?,?,?,?,?,?)",
+            (ean, p.get("name"), p.get("brand"), p.get("image"), p.get("url"), p.get("current_price"), now),
         )
     conn.commit()
 
-    print(f"Henter {HISTORY_DAYS}-dagers prishistorikk for {len(eans)} EAN-er...")
-    histories = fetch_prices_bulk(s, eans)
+    today = time.strftime("%Y-%m-%d")
+    cached_histories, fresh_history_eans = load_cached_histories(conn, eans, today)
+    histories = dict(cached_histories)
+    eans_needing_history = [ean for ean in eans if (not INCREMENTAL_MODE) or ean not in fresh_history_eans]
 
-    for ean, history in histories.items():
+    print(
+        f"Henter {HISTORY_DAYS}-dagers prishistorikk for {len(eans_needing_history)}/{len(eans)} EAN-er..."
+    )
+    if cached_histories:
+        print(f"  gjenbruker lokal historikk for {len(fresh_history_eans)} EAN-er med dagens data")
+    fetched_histories = fetch_prices_bulk(s, eans_needing_history) if eans_needing_history else {}
+    histories.update(fetched_histories)
+
+    for ean, history in fetched_histories.items():
         for p in meny_points(history):
             conn.execute(
                 "INSERT OR REPLACE INTO prices(ean,store,date,price) VALUES(?,?,?,?)",
                 (ean, p.get("store") or p.get("store_name"), p.get("date"), p.get("price")),
             )
     conn.commit()
-    conn.close()
+    live_cache_by_ean = load_live_cache(conn, LIVE_CACHE_TTL_HOURS) if INCREMENTAL_MODE else {}
+    live_cache_rows = []
 
     rows, stats, sample_store_names, sample_missing_store, sample_missing_live = build_supabase_rows(
-        products, histories, live_price_session
+        products,
+        histories,
+        live_price_session,
+        live_cache_by_ean=live_cache_by_ean,
+        live_cache_rows=live_cache_rows,
     )
+    persist_live_cache(conn, live_cache_rows)
+    conn.close()
 
     print("\nDebug:")
     print(f"  Produkter i katalogsync: {stats['total_products']}")
     print(f"  Historier mottatt: {stats['total_histories']}")
+    print(f"  Live-cache treff: {stats['live_cache_hits']}")
+    print(f"  Live-priser hentet fra Meny: {stats['live_fetches']}")
     print(f"  Mangler grunnpris: {stats['missing_base_price']}")
     print(f"  Ingen historikkmatch for {MENY_HISTORY_STORE}: {stats['missing_store_match']}")
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
     print(f"  Ferdige rader: {stats['rows_built']}")
+    if stats["rows_built"] < MIN_EXPECTED_ROWS:
+        print(
+            f"  ADVARSEL: Bare {stats['rows_built']} rader ble bygget, som er lavere enn forventet minimum {MIN_EXPECTED_ROWS}."
+        )
+        print(
+            "  Dette tyder ofte på svak katalogcache, manglende grunnpriser eller for få varer med Meny-historikk."
+        )
     if sample_store_names:
         print("  Eksempel på Meny-butikknavn i historikken:")
         for name in sample_store_names:
