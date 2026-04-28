@@ -65,6 +65,22 @@ const STAPLE_PROFILES: Record<
     include: ['potet'],
     avoid: ['potetgull'],
   },
+  ketchup: {
+    include: ['ketchup', 'tomatketchup', 'idun', 'heinz'],
+  },
+  pannekaker: {
+    include: ['pannekaker', 'pannekake', 'pannekakemix', 'mix', 'toro'],
+    avoid: ['proteinbar'],
+  },
+  kotelett: {
+    include: ['kotelett', 'koteletter', 'svinekotelett', 'nakkekotelett', 'jacobs'],
+  },
+  koteletter: {
+    include: ['kotelett', 'koteletter', 'svinekotelett', 'nakkekotelett', 'jacobs'],
+  },
+  spaghetti: {
+    include: ['spaghetti', 'spagetti', 'pasta', 'sopps', 'barilla'],
+  },
 };
 
 function replaceNordicLetters(value: string) {
@@ -110,11 +126,15 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
 
   let score = 0;
   let primaryMatched = true;
+  let matchedTerms = 0;
+  let strongMatchedTerms = 0;
   for (const term of terms) {
     const m = matchInfo(term);
-    const matched =
-      m.exactWord || m.prefixWord || m.suffixWord || m.containsWord || m.brandPrefix || m.inVendor;
+    const strongMatch = m.exactWord || m.prefixWord || m.suffixWord || m.inVendor;
+    const matched = strongMatch || m.containsWord || m.brandPrefix;
     if (!matched) primaryMatched = false;
+    if (matched) matchedTerms += 1;
+    if (strongMatch) strongMatchedTerms += 1;
 
     if (m.exactWord) {
       score += 260;
@@ -157,10 +177,19 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
     if (strongStapleSignals.size === 0 && !primaryMatched) return -1;
     if (strongStapleSignals.size === 0) score -= 60;
   } else if (!primaryMatched) {
-    return -1;
+    if (matchedTerms === 0) return -1;
+    if (terms.length === 1 && strongMatchedTerms === 0) return -1;
+    if (terms.length > 1) {
+      const minMatches = Math.max(1, Math.ceil(terms.length / 2));
+      if (matchedTerms < minMatches) return -1;
+      score -= (terms.length - matchedTerms) * 65;
+      if (strongMatchedTerms === 0) score -= 40;
+    }
   }
 
   if (name === terms.join(' ')) score += 200;
+  if (matchedTerms === terms.length) score += 120;
+  else if (matchedTerms > 0) score += matchedTerms * 24;
   if (product.current_price != null) score += Math.max(0, 20 - product.current_price / 20);
   return score;
 }
@@ -243,7 +272,7 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
   return disambiguateDisplayNames(dedupeProducts((data ?? []) as MenyProduct[]).slice(0, limit));
 }
 
-export async function searchProducts(query: string, limit = 30): Promise<MenyProduct[]> {
+export async function searchProducts(query: string, limit = 60): Promise<MenyProduct[]> {
   const q = query.trim();
   if (q.length < 2) return [];
   const rawTerms = q
@@ -268,7 +297,7 @@ export async function searchProducts(query: string, limit = 30): Promise<MenyPro
       ];
     })
     .join(',');
-  const candidateLimit = stapleProfile ? Math.max(limit * 24, 1500) : Math.max(limit * 8, 180);
+  const candidateLimit = stapleProfile ? Math.max(limit * 24, 1500) : Math.max(limit * 20, 600);
   const { data, error } = await supabase
     .from('meny_products')
     .select('*')

@@ -20,6 +20,7 @@ import {
   updateQuantity,
   useCart,
 } from '@/lib/cart';
+import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { searchProducts } from '@/lib/deals';
 import type { CartItem, MenyProduct } from '@/lib/types';
 
@@ -63,6 +64,7 @@ export default function CartScreen() {
       image_url: p.image_url,
       price: p.current_price,
       drop_pct: p.drop_pct,
+      campaign_text: p.campaign_text,
     });
     setQuery('');
     setResults([]);
@@ -90,11 +92,19 @@ export default function CartScreen() {
       done: items.filter((i) => i.checked),
     };
   }, [items]);
+  const activeCartByEan = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of active) {
+      if (item.ean) map.set(item.ean, (map.get(item.ean) ?? 0) + item.quantity);
+    }
+    return map;
+  }, [active]);
 
   const total = useMemo(
     () => items.reduce((sum, i) => sum + (i.price ?? 0) * i.quantity, 0),
     [items],
   );
+  const showStickyTotal = items.length > 0 && total > 0;
 
   if (loading) {
     return (
@@ -132,15 +142,20 @@ export default function CartScreen() {
           manualPrice={manualPrice}
           onChangeManualPrice={setManualPrice}
           results={results}
+          activeCartByEan={activeCartByEan}
           searching={searching}
           onPick={onAddProduct}
           onAddManual={onAddManual}
+          bottomInset={showStickyTotal ? 92 : 24}
         />
       ) : (
         <FlatList
           data={active}
           keyExtractor={(i) => i.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: showStickyTotal ? 108 : 32 },
+          ]}
           ListHeaderComponent={
             active.length === 0 ? null : (
               <Text style={styles.sectionTitle}>
@@ -166,12 +181,6 @@ export default function CartScreen() {
           )}
           ListFooterComponent={
             <View>
-              {items.length > 0 && total > 0 && (
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Estimert total</Text>
-                  <Text style={styles.totalValue}>{total.toFixed(2)} kr</Text>
-                </View>
-              )}
               {done.length > 0 && (
                 <View style={styles.doneSection}>
                   <View style={styles.doneHeader}>
@@ -197,6 +206,7 @@ export default function CartScreen() {
           }
         />
       )}
+      {showStickyTotal ? <StickyTotal total={total} searching={showSearchPanel} /> : null}
     </View>
   );
 }
@@ -206,17 +216,21 @@ function SearchResults({
   manualPrice,
   onChangeManualPrice,
   results,
+  activeCartByEan,
   searching,
   onPick,
   onAddManual,
+  bottomInset,
 }: {
   query: string;
   manualPrice: string;
   onChangeManualPrice: (value: string) => void;
   results: MenyProduct[];
+  activeCartByEan: Map<string, number>;
   searching: boolean;
   onPick: (p: MenyProduct) => void;
   onAddManual: () => void;
+  bottomInset: number;
 }) {
   const manualAddCard = (
     <View style={styles.manualAddCard}>
@@ -245,7 +259,7 @@ function SearchResults({
       data={results}
       keyExtractor={(p) => p.ean}
       keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset }]}
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       windowSize={7}
@@ -259,7 +273,13 @@ function SearchResults({
           </View>
         )
       }
-      renderItem={({ item }) => <SearchResultRow item={item} onPick={onPick} />}
+      renderItem={({ item }) => (
+        <SearchResultRow
+          item={item}
+          cartQuantity={item.ean ? activeCartByEan.get(item.ean) ?? 0 : 0}
+          onPick={onPick}
+        />
+      )}
       ListFooterComponent={
         results.length > 0 ? (
           manualAddCard
@@ -271,13 +291,17 @@ function SearchResults({
 
 const SearchResultRow = memo(function SearchResultRow({
   item,
+  cartQuantity,
   onPick,
 }: {
   item: MenyProduct;
+  cartQuantity: number;
   onPick: (p: MenyProduct) => void;
 }) {
+  const inCart = cartQuantity > 0;
+
   return (
-    <View style={styles.resultRow}>
+    <View style={[styles.resultRow, inCart && styles.resultRowInCart]}>
       {item.image_url ? (
         <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
       ) : (
@@ -290,16 +314,37 @@ const SearchResultRow = memo(function SearchResultRow({
           {item.name}
         </Text>
         {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
+        {isLikelyCampaignText(item.campaign_text) ? (
+          <CampaignBadge text={item.campaign_text!} />
+        ) : null}
       </View>
       {item.current_price != null ? (
         <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
       ) : null}
-      <Pressable onPress={() => onPick(item)} hitSlop={8} style={styles.resultAddButton}>
-        <Ionicons name="add" size={22} color="#E10A0A" />
+      <Pressable
+        onPress={() => onPick(item)}
+        hitSlop={8}
+        style={[styles.resultAddButton, inCart && styles.resultAddButtonDone]}>
+        <Ionicons name={inCart ? 'checkmark' : 'add'} size={22} color={inCart ? '#fff' : '#E10A0A'} />
       </Pressable>
+      {inCart ? <Text style={styles.resultCartCount}>{cartQuantity}</Text> : null}
     </View>
   );
 });
+
+function StickyTotal({ total, searching }: { total: number; searching: boolean }) {
+  return (
+    <View style={styles.stickyTotalWrap}>
+      <View style={styles.stickyTotal}>
+        <View>
+          <Text style={styles.totalLabel}>Estimert total</Text>
+          <Text style={styles.totalHint}>{searching ? 'Oppdatert mens du søker' : 'Basert på varene i lista'}</Text>
+        </View>
+        <Text style={styles.totalValue}>{total.toFixed(2)} kr</Text>
+      </View>
+    </View>
+  );
+}
 
 const CartRow = memo(function CartRow({
   item,
@@ -355,6 +400,9 @@ const CartRow = memo(function CartRow({
             <Text style={styles.dealBadge}>−{Math.round(item.drop_pct)} %</Text>
           ) : null}
         </View>
+        {isLikelyCampaignText(item.campaign_text) ? (
+          <CampaignBadge text={item.campaign_text!} />
+        ) : null}
       </View>
       <View style={styles.quantityControl}>
         <Pressable
@@ -388,6 +436,34 @@ const CartRow = memo(function CartRow({
     </View>
   );
 });
+
+function CampaignBadge({ text }: { text: string }) {
+  const kind = getCampaignKind(text);
+  const badgeStyle = [
+    styles.campaignBadge,
+    kind === 'bundle' && styles.campaignBadgeBundle,
+    kind === 'member' && styles.campaignBadgeMember,
+    kind === 'bonus' && styles.campaignBadgeBonus,
+    kind === 'clearance' && styles.campaignBadgeClearance,
+  ];
+  const iconName =
+    kind === 'bundle'
+      ? 'pricetags'
+      : kind === 'member'
+        ? 'people'
+        : kind === 'bonus'
+          ? 'star'
+          : kind === 'clearance'
+            ? 'flash'
+            : 'ticket';
+
+  return (
+    <View style={badgeStyle}>
+      <Ionicons name={iconName} size={12} color="#fff" />
+      <Text style={styles.campaignBadgeText}>{text}</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f7' },
@@ -445,12 +521,25 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
   },
+  resultRowInCart: {
+    backgroundColor: '#F2FBF5',
+  },
   resultAddButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  resultAddButtonDone: {
+    backgroundColor: '#2E8B57',
+  },
+  resultCartCount: {
+    minWidth: 18,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2E8B57',
   },
   resultThumb: {
     width: 44,
@@ -465,6 +554,26 @@ const styles = StyleSheet.create({
   resultName: { fontSize: 14, fontWeight: '500' },
   resultPrice: { fontSize: 14, color: '#E10A0A', fontWeight: '600' },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
+  campaignBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: '#2B6A57',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  campaignBadgeBundle: { backgroundColor: '#0B6B3A' },
+  campaignBadgeMember: { backgroundColor: '#005B99' },
+  campaignBadgeBonus: { backgroundColor: '#7A4E00' },
+  campaignBadgeClearance: { backgroundColor: '#A63D40' },
+  campaignBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   cartRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -523,15 +632,32 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   removeButton: { padding: 4 },
-  totalRow: {
+  stickyTotalWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    backgroundColor: 'transparent',
+  },
+  stickyTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#fff',
     padding: 14,
     borderRadius: 10,
-    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e6e6ea',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   totalLabel: { color: '#666' },
+  totalHint: { color: '#999', fontSize: 12, marginTop: 2 },
   totalValue: { fontWeight: '700' },
   doneSection: { marginTop: 16, gap: 6 },
   doneHeader: {

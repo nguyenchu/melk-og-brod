@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { addToCart, useCart } from '@/lib/cart';
+import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals } from '@/lib/deals';
 import type { MenyProduct } from '@/lib/types';
 
@@ -65,30 +66,6 @@ function formatComputedAt(value: string) {
 
   const diffDays = Math.round(diffHours / 24);
   return `Oppdatert for ${diffDays} d siden · ${absolute}`;
-}
-
-function isLikelyCampaignText(value: string | null | undefined) {
-  if (!value) return false;
-  const text = value.trim();
-  const normalized = text.toLowerCase();
-
-  if (
-    text.length > 60 ||
-    /[{}[\]":]/.test(text) ||
-    /next_public_|window\.env|trumfid|chainid|token|provider|login/.test(normalized)
-  ) {
-    return false;
-  }
-
-  return (
-    /\b\d+\s*for\s*\d+\b/.test(normalized) ||
-    /\b\d+\s*-\s*for\s*-\s*\d+\b/.test(normalized) ||
-    /\bkj[øo]p\s*\d+.*betal/.test(normalized) ||
-    /\bplukk\s*(?:&|og)\s*miks\b/.test(normalized) ||
-    /\bmedlemspris\b/.test(normalized) ||
-    /\btrumf(?:-bonus)?\b/.test(normalized) ||
-    /\bryddesalg\b/.test(normalized)
-  );
 }
 
 export default function DealsScreen() {
@@ -175,6 +152,7 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
         image_url: item.image_url,
         price: item.current_price,
         drop_pct: item.drop_pct,
+        campaign_text: item.campaign_text,
       });
     } catch (e: any) {
       Alert.alert('Kunne ikke legge til', e.message);
@@ -216,7 +194,7 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
             </Text>
           ) : null}
         </View>
-        {isLikelyCampaignText(item.campaign_text) ? <Text style={styles.campaign}>{item.campaign_text}</Text> : null}
+        {isLikelyCampaignText(item.campaign_text) ? <CampaignBadge text={item.campaign_text!} /> : null}
         {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
         {inCart ? (
@@ -233,6 +211,34 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
           <Ionicons name={inCart ? 'checkmark' : 'add'} size={20} color="#fff" />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function CampaignBadge({ text }: { text: string }) {
+  const kind = getCampaignKind(text);
+  const badgeStyle = [
+    styles.campaign,
+    kind === 'bundle' && styles.campaignBundle,
+    kind === 'member' && styles.campaignMember,
+    kind === 'bonus' && styles.campaignBonus,
+    kind === 'clearance' && styles.campaignClearance,
+  ];
+  const iconName =
+    kind === 'bundle'
+      ? 'pricetags'
+      : kind === 'member'
+        ? 'people'
+        : kind === 'bonus'
+          ? 'star'
+          : kind === 'clearance'
+            ? 'flash'
+            : 'ticket';
+
+  return (
+    <View style={badgeStyle}>
+      <Ionicons name={iconName} size={12} color="#fff" />
+      <Text style={styles.campaignText}>{text}</Text>
     </View>
   );
 }
@@ -263,14 +269,23 @@ const styles = StyleSheet.create({
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
   campaign: {
-    fontSize: 12,
-    color: '#0B6B3A',
-    backgroundColor: '#E9F7EF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2B6A57',
     alignSelf: 'flex-start',
     marginTop: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
+  },
+  campaignBundle: { backgroundColor: '#0B6B3A' },
+  campaignMember: { backgroundColor: '#005B99' },
+  campaignBonus: { backgroundColor: '#7A4E00' },
+  campaignClearance: { backgroundColor: '#A63D40' },
+  campaignText: {
+    fontSize: 12,
+    color: '#fff',
     fontWeight: '600',
   },
   approximate: { fontSize: 12, color: '#8b6b34', marginTop: 4 },
