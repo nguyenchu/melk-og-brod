@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -62,6 +62,7 @@ export default function CartScreen() {
       ean: p.ean,
       image_url: p.image_url,
       price: p.current_price,
+      drop_pct: p.drop_pct,
     });
     setQuery('');
     setResults([]);
@@ -245,6 +246,9 @@ function SearchResults({
       keyExtractor={(p) => p.ean}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={styles.listContent}
+      initialNumToRender={12}
+      maxToRenderPerBatch={12}
+      windowSize={7}
       ListEmptyComponent={
         searching ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
@@ -255,29 +259,7 @@ function SearchResults({
           </View>
         )
       }
-      renderItem={({ item }) => (
-        <View style={styles.resultRow}>
-          {item.image_url ? (
-            <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
-          ) : (
-            <View style={[styles.resultThumb, styles.resultThumbPlaceholder]}>
-              <Ionicons name="image-outline" size={18} color="#ccc" />
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.resultName} numberOfLines={2}>
-              {item.name}
-            </Text>
-            {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
-          </View>
-          {item.current_price != null && (
-            <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
-          )}
-          <Pressable onPress={() => onPick(item)} hitSlop={8} style={styles.resultAddBtn}>
-            <Ionicons name="add" size={22} color="#fff" />
-          </Pressable>
-        </View>
-      )}
+      renderItem={({ item }) => <SearchResultRow item={item} onPick={onPick} />}
       ListFooterComponent={
         results.length > 0 ? (
           manualAddCard
@@ -287,7 +269,39 @@ function SearchResults({
   );
 }
 
-function CartRow({
+const SearchResultRow = memo(function SearchResultRow({
+  item,
+  onPick,
+}: {
+  item: MenyProduct;
+  onPick: (p: MenyProduct) => void;
+}) {
+  return (
+    <View style={styles.resultRow}>
+      {item.image_url ? (
+        <Image source={item.image_url} style={styles.resultThumb} contentFit="contain" />
+      ) : (
+        <View style={[styles.resultThumb, styles.resultThumbPlaceholder]}>
+          <Ionicons name="image-outline" size={18} color="#ccc" />
+        </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.resultName} numberOfLines={2}>
+          {item.name}
+        </Text>
+        {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
+      </View>
+      {item.current_price != null ? (
+        <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
+      ) : null}
+      <Pressable onPress={() => onPick(item)} hitSlop={8} style={styles.resultAddButton}>
+        <Ionicons name="add" size={22} color="#E10A0A" />
+      </Pressable>
+    </View>
+  );
+});
+
+const CartRow = memo(function CartRow({
   item,
   onToggle,
   onRemove,
@@ -330,12 +344,17 @@ function CartRow({
         <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>
           {item.name}
         </Text>
-        {item.price != null && (
-          <Text style={styles.cartPrice}>
-            {item.price.toFixed(2)} kr
-            {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
-          </Text>
-        )}
+        <View style={styles.cartPriceRow}>
+          {item.price != null && (
+            <Text style={styles.cartPrice}>
+              {item.price.toFixed(2)} kr
+              {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
+            </Text>
+          )}
+          {item.drop_pct != null && item.drop_pct >= 5 ? (
+            <Text style={styles.dealBadge}>−{Math.round(item.drop_pct)} %</Text>
+          ) : null}
+        </View>
       </View>
       <View style={styles.quantityControl}>
         <Pressable
@@ -368,7 +387,7 @@ function CartRow({
       </Pressable>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f7' },
@@ -426,6 +445,13 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
   },
+  resultAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   resultThumb: {
     width: 44,
     height: 44,
@@ -438,14 +464,6 @@ const styles = StyleSheet.create({
   },
   resultName: { fontSize: 14, fontWeight: '500' },
   resultPrice: { fontSize: 14, color: '#E10A0A', fontWeight: '600' },
-  resultAddBtn: {
-    backgroundColor: '#E10A0A',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
   cartRow: {
     flexDirection: 'row',
@@ -467,7 +485,18 @@ const styles = StyleSheet.create({
   },
   cartName: { fontSize: 15, fontWeight: '500' },
   cartNameDone: { color: '#aaa', textDecorationLine: 'line-through' },
-  cartPrice: { fontSize: 13, color: '#666', marginTop: 2 },
+  cartPrice: { fontSize: 13, color: '#666' },
+  cartPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  dealBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#A85C00',
+    backgroundColor: '#FFF1D6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
   quantityControl: {
     flexDirection: 'row',
     alignItems: 'center',
