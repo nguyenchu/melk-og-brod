@@ -6,7 +6,7 @@ export function isLikelyCampaignText(value: string | null | undefined) {
   if (
     text.length > 60 ||
     /[{}[\]":]/.test(text) ||
-    /next_public_|window\.env|trumfid|chainid|token|provider|login/.test(normalized)
+    /next_public_|window\.env|trumfid|chainid|token|provider|login|rainforest_alliance|fairtrade|utz|oekologisk|okologisk/.test(normalized)
   ) {
     return false;
   }
