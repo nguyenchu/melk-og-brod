@@ -9,11 +9,18 @@ let cache: CartItem[] | null = null;
 const listeners = new Set<() => void>();
 
 function normalizeCartItem(
-  item: CartItem | (Omit<CartItem, 'quantity' | 'image_url'> & { quantity?: number; image_url?: string | null }),
+  item:
+    | CartItem
+    | (Omit<CartItem, 'quantity' | 'image_url' | 'drop_pct'> & {
+        quantity?: number;
+        image_url?: string | null;
+        drop_pct?: number | null;
+      }),
 ): CartItem {
   return {
     ...item,
     image_url: item.image_url ?? null,
+    drop_pct: item.drop_pct ?? null,
     quantity: Math.max(1, item.quantity ?? 1),
   };
 }
@@ -125,6 +132,7 @@ export async function addToCart(input: {
   ean?: string | null;
   image_url?: string | null;
   price?: number | null;
+  drop_pct?: number | null;
 }): Promise<CartItem> {
   const items = await loadFromStorage();
   const normalizedName = input.name.trim().toLowerCase();
@@ -148,6 +156,7 @@ export async function addToCart(input: {
     ean: input.ean ?? null,
     image_url: input.image_url ?? null,
     price: input.price ?? null,
+    drop_pct: input.drop_pct ?? null,
     quantity: 1,
     checked: false,
     added_at: new Date().toISOString(),

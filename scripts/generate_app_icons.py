@@ -245,6 +245,10 @@ def main():
   favicon = resize_nearest(icon, 48, 48)
   write_png(ASSETS / "favicon.png", favicon)
 
+  splash = make_canvas(1024, 1024)
+  draw_logo(splash, transparent_background=True)
+  write_png(ASSETS / "splash-icon.png", splash)
+
 
 if __name__ == "__main__":
   main()
