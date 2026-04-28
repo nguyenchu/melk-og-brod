@@ -365,10 +365,64 @@ def decode_json_string(value):
         return value
 
 
+def canonicalize_promo(text):
+    """Return a clean human-readable promo label, or None.
+
+    Handles raw scraped text that may contain trailing JSON/URL junk by
+    extracting only the canonical phrase ("3 for 2", "Kjøp 3 betal 2", etc.)
+    plus a short context word like "på barnemat" when present.
+    """
+    if not text:
+        return None
+
+    m = re.search(r"\b(\d+)\s*[\-_]?\s*for\s*[\-_]?\s*(\d+)\b", text, re.IGNORECASE)
+    if m:
+        n, k = m.group(1), m.group(2)
+        rest = text[m.end() : m.end() + 60]
+        ctx = re.match(r"\s*p[åa]\s+([a-zæøå]+(?:\s+[a-zæøå]+)?)", rest, re.IGNORECASE)
+        if ctx:
+            return f"{n} for {k} på {ctx.group(1).strip().lower()}"
+        return f"{n} for {k}"
+
+    m = re.search(r"kj[øo]p\s*(\d+)[,\s]+betal\s*(?:for\s*)?(\d+)", text, re.IGNORECASE)
+    if m:
+        return f"Kjøp {m.group(1)} betal {m.group(2)}"
+
+    m = re.search(
+        r"plukk\s*(?:&|og)\s*miks(?:\s+([a-zæøå]{2,20}))?", text, re.IGNORECASE
+    )
+    if m:
+        cat = m.group(1)
+        return f"Plukk & miks {cat.lower()}" if cat else "Plukk & miks"
+
+    m = re.search(r"\+?\s*(\d+)\s*%\s*trumf(?:-?\s*bonus)?", text, re.IGNORECASE)
+    if m:
+        return f"+{m.group(1)}% Trumf-bonus"
+
+    if re.search(r"\bmedlemspris\b", text, re.IGNORECASE):
+        return "Medlemspris"
+
+    m = re.search(r"ryddesalg[^%]{0,40}?[\-–−]\s*(\d+)\s*%", text, re.IGNORECASE)
+    if m:
+        return f"Ryddesalg −{m.group(1)}%"
+    if re.search(r"\bryddesalg\b", text, re.IGNORECASE):
+        return "Ryddesalg"
+
+    return None
+
+
 def normalize_promo_text(value):
     text = compact_text(value)
     if not text:
         return None
+
+    canonical = canonicalize_promo(text)
+    if canonical:
+        return canonical
+
+    if re.search(r'[\\"{}\[\]/]', text):
+        return None
+
     lowered = text.lower()
     if not any(keyword in lowered for keyword in PROMO_KEYWORDS):
         return None
@@ -429,7 +483,43 @@ def extract_campaign_text_from_offer(offer):
     return None
 
 
-def extract_meny_live_data(html):
+def extract_campaign_text_from_page_state(html, url=None):
+    """Pull the promo label associated with our EAN from the Next.js page state.
+
+    Meny embeds product data as escaped JSON inside __next_f streaming chunks,
+    so the field name appears as ``\\"promoMarketTextLong\\"`` rather than
+    ``"promoMarketTextLong"``. We try EAN-anchored matches first to avoid
+    picking up an unrelated promo from a sidebar/menu.
+    """
+    ean = None
+    if url:
+        match = re.search(r"(\d{8,14})(?:/?$)", url)
+        if match:
+            ean = match.group(1)
+
+    promo_fields = ("promoMarketTextLong", "promotionDisplayName", "promoName")
+
+    patterns = []
+    if ean:
+        for field in promo_fields:
+            patterns.extend(
+                [
+                    rf'\\"ean\\":\\"{re.escape(ean)}\\".{{0,15000}}?\\"{field}\\":\\"([^\\]+)\\"',
+                    rf'\\"{field}\\":\\"([^\\]+)\\".{{0,15000}}?\\"ean\\":\\"{re.escape(ean)}\\"',
+                    rf'"ean":"{re.escape(ean)}".{{0,15000}}?"{field}":"([^"]+)"',
+                    rf'"{field}":"([^"]+)".{{0,15000}}?"ean":"{re.escape(ean)}"',
+                ]
+            )
+
+    for pattern in patterns:
+        for raw_value in re.findall(pattern, html, re.IGNORECASE | re.DOTALL):
+            promo = normalize_promo_text(decode_json_string(raw_value))
+            if promo:
+                return promo
+    return None
+
+
+def extract_meny_live_data(html, url=None):
     match = re.search(
         r'<script id="jsonLD" type="application/ld\+json">(.+?)</script>',
         html,
@@ -452,7 +542,8 @@ def extract_meny_live_data(html):
         return None
     return {
         "price": float(str(price).replace(",", ".")),
-        "campaign_text": extract_campaign_text_from_offer(offer),
+        "campaign_text": extract_campaign_text_from_offer(offer)
+        or extract_campaign_text_from_page_state(html, url),
     }
 
 
@@ -473,7 +564,7 @@ def fetch_live_meny_price(session, url):
     try:
         response = session.get(normalized_url, timeout=30)
         response.raise_for_status()
-        return extract_meny_live_data(response.text)
+        return extract_meny_live_data(response.text, normalized_url)
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 404:
