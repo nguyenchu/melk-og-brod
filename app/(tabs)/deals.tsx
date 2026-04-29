@@ -11,42 +11,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { addToCart, useCart } from '@/lib/cart';
+import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals } from '@/lib/deals';
+import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
 import type { MenyProduct } from '@/lib/types';
-
-function isVariableWeightItem(item: MenyProduct) {
-  const normalizedName = item.name.toLowerCase();
-  return (
-    item.ean.startsWith('2') ||
-    /ca[\s.]*\d+[,.]?\d*\s*kg/.test(normalizedName) ||
-    /ca[\s.]*\d+[,.]?\d*\s*g/.test(normalizedName) ||
-    normalizedName.includes('ca ')
-  );
-}
-
-function extractWeightKg(name: string) {
-  const normalized = name.toLowerCase().replace(/\s+/g, ' ');
-  const kgMatch = normalized.match(/(?:ca[\s.]*)?(\d+[.,]?\d*)\s*kg\b/);
-  if (kgMatch) return Number(kgMatch[1].replace(',', '.'));
-
-  const gramMatch = normalized.match(/(?:ca[\s.]*)?(\d+[.,]?\d*)\s*g\b/);
-  if (gramMatch) return Number(gramMatch[1].replace(',', '.')) / 1000;
-
-  return null;
-}
-
-function formatPrice(value: number | null | undefined, approximate: boolean) {
-  if (value == null) return null;
-  return approximate ? `${Math.round(value)} kr` : `${value.toFixed(2)} kr`;
-}
-
-function formatUnitPrice(totalPrice: number | null | undefined, weightKg: number | null, approximate: boolean) {
-  if (totalPrice == null || !weightKg || !Number.isFinite(weightKg) || weightKg <= 0) return null;
-  const unitPrice = totalPrice / weightKg;
-  return approximate ? `ca. ${Math.round(unitPrice)} kr/kg` : `${unitPrice.toFixed(2)} kr/kg`;
-}
 
 function formatComputedAt(value: string) {
   const date = new Date(value);
@@ -68,6 +37,16 @@ function formatComputedAt(value: string) {
   return `Oppdatert for ${diffDays} d siden · ${absolute}`;
 }
 
+function shouldShowBrand(name: string, brand: string | null | undefined) {
+  if (!brand) return false;
+
+  const normalizedName = name.toLowerCase();
+  const normalizedBrand = brand.toLowerCase().trim();
+  if (!normalizedBrand) return false;
+
+  return !normalizedName.includes(normalizedBrand);
+}
+
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,9 +54,10 @@ export default function DealsScreen() {
   const { items: cartItems } = useCart();
 
   const cartByEan = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { id: string; quantity: number }>();
     for (const item of cartItems) {
-      if (item.ean) map.set(item.ean, (map.get(item.ean) ?? 0) + item.quantity);
+      if (!item.ean || item.checked) continue;
+      map.set(item.ean, { id: item.id, quantity: item.quantity });
     }
     return map;
   }, [cartItems]);
@@ -95,6 +75,8 @@ export default function DealsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const latestComputedAt = deals?.[0]?.computed_at ?? null;
 
   async function onRefresh() {
     setRefreshing(true);
@@ -122,9 +104,14 @@ export default function DealsScreen() {
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : (
-          <Text style={styles.headerSub}>
-            Beste prisfall på Meny mot 30-dagers median
-          </Text>
+          <View style={styles.headerBlock}>
+            <Text style={styles.headerSub}>
+              Beste prisfall på Meny mot 30-dagers median
+            </Text>
+            {latestComputedAt ? (
+              <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+            ) : null}
+          </View>
         )
       }
       ListEmptyComponent={
@@ -135,16 +122,28 @@ export default function DealsScreen() {
         ) : null
       }
       renderItem={({ item }) => (
-        <DealRow item={item} cartQuantity={item.ean ? cartByEan.get(item.ean) ?? 0 : 0} />
+        <DealRow
+          item={item}
+          cartItemId={item.ean ? cartByEan.get(item.ean)?.id ?? null : null}
+          cartQuantity={item.ean ? cartByEan.get(item.ean)?.quantity ?? 0 : 0}
+        />
       )}
     />
   );
 }
 
-function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: number }) {
+function DealRow({
+  item,
+  cartItemId,
+  cartQuantity,
+}: {
+  item: MenyProduct;
+  cartItemId: string | null;
+  cartQuantity: number;
+}) {
   const inCart = cartQuantity > 0;
 
-  async function onAdd() {
+  async function onIncrement() {
     try {
       await addToCart({
         name: item.name,
@@ -159,12 +158,28 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
     }
   }
 
+  async function onDecrement() {
+    if (!cartItemId) return;
+    try {
+      if (cartQuantity <= 1) {
+        await removeFromCart(cartItemId);
+      } else {
+        await updateQuantity(cartItemId, cartQuantity - 1);
+      }
+    } catch (e: any) {
+      Alert.alert('Kunne ikke oppdatere', e.message);
+    }
+  }
+
   const drop = item.drop_pct ?? 0;
-  const approximate = isVariableWeightItem(item);
-  const weightKg = extractWeightKg(item.name);
-  const currentPriceLabel = formatPrice(item.current_price, approximate);
-  const beforePriceLabel = formatPrice(item.median_30d, approximate);
-  const unitPriceLabel = formatUnitPrice(item.current_price, weightKg, approximate);
+  const approximate = isApproximateWeight(item.name, item.ean);
+  const currentPriceLabel = formatDisplayPrice(item.current_price, approximate);
+  const isMenyPromo = item.price_source === 'meny';
+  const beforePriceValue = isMenyPromo ? item.original_price : item.median_30d;
+  const beforePriceLabel = formatDisplayPrice(beforePriceValue, approximate);
+  const beforePricePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
+  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
+  const showBrand = shouldShowBrand(item.name, item.brand);
 
   return (
     <View style={[styles.row, inCart && styles.rowInCart]}>
@@ -179,7 +194,7 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
         <Text style={styles.name} numberOfLines={2}>
           {item.name}
         </Text>
-        {item.brand ? <Text style={styles.brand}>{item.brand}</Text> : null}
+        {showBrand ? <Text style={styles.brand}>{item.brand}</Text> : null}
         <View style={styles.priceRow}>
           {currentPriceLabel ? (
             <Text style={styles.price}>
@@ -189,7 +204,7 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
           ) : null}
           {beforePriceLabel ? (
             <Text style={styles.median}>
-              før {approximate ? 'ca. ' : ''}
+              {beforePricePrefix} {approximate ? 'ca. ' : ''}
               {beforePriceLabel}
             </Text>
           ) : null}
@@ -197,19 +212,26 @@ function DealRow({ item, cartQuantity }: { item: MenyProduct; cartQuantity: numb
         {isLikelyCampaignText(item.campaign_text) ? <CampaignBadge text={item.campaign_text!} /> : null}
         {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
-        {inCart ? (
-          <Text style={styles.inCartLabel}>I lista ({cartQuantity})</Text>
-        ) : (
-          <Text style={styles.computedAt}>{formatComputedAt(item.computed_at)}</Text>
-        )}
       </View>
       <View style={styles.right}>
         <View style={styles.dropBadge}>
           <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
         </View>
-        <Pressable onPress={onAdd} style={[styles.addBtn, inCart && styles.addBtnDone]}>
-          <Ionicons name={inCart ? 'checkmark' : 'add'} size={20} color="#fff" />
-        </Pressable>
+        {inCart ? (
+          <View style={styles.quantityControl}>
+            <Pressable onPress={onDecrement} hitSlop={8} style={styles.quantityButton}>
+              <Ionicons name="remove" size={16} color="#444" />
+            </Pressable>
+            <Text style={styles.quantityValue}>{cartQuantity}</Text>
+            <Pressable onPress={onIncrement} hitSlop={8} style={styles.quantityButton}>
+              <Ionicons name="add" size={16} color="#444" />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={onIncrement} style={styles.addBtn}>
+            <Ionicons name="add" size={20} color="#fff" />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -246,7 +268,9 @@ function CampaignBadge({ text }: { text: string }) {
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list: { padding: 12, gap: 8 },
-  headerSub: { color: '#666', marginBottom: 8, paddingHorizontal: 4 },
+  headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
+  headerSub: { color: '#666' },
+  headerMeta: { fontSize: 12, color: '#888' },
   errorBox: { backgroundColor: '#FFE5E5', padding: 12, borderRadius: 8, marginBottom: 8 },
   errorText: { color: '#C00' },
   empty: { color: '#999', textAlign: 'center', padding: 32 },
@@ -254,18 +278,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 12,
+    padding: 10,
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   rowInCart: { backgroundColor: '#F2FBF5', opacity: 0.92 },
-  inCartLabel: { fontSize: 12, color: '#2E8B57', fontWeight: '600', marginTop: 6 },
-  thumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: '#f5f5f7' },
+  thumb: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#f5f5f7' },
   thumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   body: { flex: 1 },
   name: { fontSize: 15, fontWeight: '600', color: '#111' },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 3 },
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
   campaign: {
@@ -274,7 +297,7 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: '#2B6A57',
     alignSelf: 'flex-start',
-    marginTop: 6,
+    marginTop: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
@@ -288,10 +311,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  approximate: { fontSize: 12, color: '#8b6b34', marginTop: 4 },
-  unitPrice: { fontSize: 12, color: '#666', marginTop: 2 },
-  computedAt: { fontSize: 12, color: '#777', marginTop: 6 },
-  right: { alignItems: 'center', gap: 8 },
+  approximate: { fontSize: 12, color: '#8b6b34', marginTop: 3 },
+  unitPrice: { fontSize: 12, color: '#666', marginTop: 1 },
+  right: { alignItems: 'center', gap: 6, minWidth: 84 },
   dropBadge: {
     backgroundColor: '#FFF1D6',
     paddingHorizontal: 8,
@@ -307,5 +329,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  addBtnDone: { backgroundColor: '#2E8B57' },
+  quantityControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f5f5f7',
+    borderRadius: 18,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+  },
+  quantityButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quantityValue: {
+    minWidth: 20,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E8B57',
+  },
 });

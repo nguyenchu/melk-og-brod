@@ -25,10 +25,39 @@ export function isLikelyCampaignText(value: string | null | undefined) {
   );
 }
 
+export function getBundlePayForOffer(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? '';
+  if (!normalized) return null;
+
+  const directMatch =
+    normalized.match(/\b(\d+)\s*for\s*(\d+)\b/) ??
+    normalized.match(/\b(\d+)\s*-\s*for\s*-\s*(\d+)\b/);
+  if (directMatch) {
+    const buy = Number(directMatch[1]);
+    const payFor = Number(directMatch[2]);
+    if (Number.isFinite(buy) && Number.isFinite(payFor) && buy > 1 && payFor >= 0 && payFor < buy) {
+      return { buy, payFor };
+    }
+  }
+
+  const buyPayMatch = normalized.match(
+    /\bkj[øo]p\s*(\d+)[,\s]+betal\s*(?:for\s*)?(\d+)\b/,
+  );
+  if (buyPayMatch) {
+    const buy = Number(buyPayMatch[1]);
+    const payFor = Number(buyPayMatch[2]);
+    if (Number.isFinite(buy) && Number.isFinite(payFor) && buy > 1 && payFor >= 0 && payFor < buy) {
+      return { buy, payFor };
+    }
+  }
+
+  return null;
+}
+
 export function getCampaignKind(value: string | null | undefined) {
   const normalized = value?.trim().toLowerCase() ?? '';
   if (!normalized) return 'generic' as const;
-  if (/\b\d+\s*for\s*\d+\b/.test(normalized) || /\bkj[øo]p\s*\d+.*betal/.test(normalized)) {
+  if (getBundlePayForOffer(normalized) || /\bkj[øo]p\s*\d+.*betal/.test(normalized)) {
     return 'bundle' as const;
   }
   if (/\bmedlemspris\b/.test(normalized)) {

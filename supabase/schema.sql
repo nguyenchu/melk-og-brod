@@ -5,16 +5,18 @@
 -- Klienten leser med anon-nøkkel.
 
 create table meny_products (
-  ean           text primary key,
-  name          text not null,
-  brand         text,
-  image_url     text,
-  vendor_url    text,
-  current_price numeric,
-  median_30d    numeric,
-  drop_pct      numeric,
-  campaign_text text,
-  computed_at   timestamptz not null default now()
+  ean            text primary key,
+  name           text not null,
+  brand          text,
+  image_url      text,
+  vendor_url     text,
+  current_price  numeric,
+  median_30d     numeric,
+  original_price numeric,           -- Meny pricePerUnitOriginal (regulert førpris)
+  price_source   text,              -- 'meny' | 'median' | null
+  drop_pct       numeric,
+  campaign_text  text,
+  computed_at    timestamptz not null default now()
 );
 
 create index meny_products_drop_pct_idx
