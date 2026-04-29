@@ -37,6 +37,12 @@ API_BASE = "https://kassal.app/api/v1"
 API_KEY = os.environ.get("KASSALAPP_API_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+MENY_CAMPAIGNS_URL = "https://meny.no/kampanjer"
+PLATFORM_REST_BASE_URL = os.environ.get(
+    "MENY_PLATFORM_REST_BASE_URL", "https://platform-rest-prod.ngdata.no"
+)
+PLATFORM_CHAIN_ID = os.environ.get("MENY_PLATFORM_CHAIN_ID", "1300")
+PLATFORM_GLN = os.environ.get("MENY_PLATFORM_GLN", "0")
 
 DB_PATH = SCRIPT_DIR / "deals.db"
 
@@ -49,7 +55,7 @@ MAX_CATALOG_PAGES = int(os.environ.get("MAX_CATALOG_PAGES", "250"))
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "0"))
 PRICE_HISTORY_CHUNK_SIZE = int(os.environ.get("PRICE_HISTORY_CHUNK_SIZE", "100"))
 PRICE_HISTORY_WORKERS = int(os.environ.get("PRICE_HISTORY_WORKERS", "2"))
-MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "20"))
+MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "80"))
 SEARCH_SUPPLEMENTS = flattened_search_supplements()
 PRODUCT_CACHE_MAX_AGE_HOURS = int(os.environ.get("PRODUCT_CACHE_MAX_AGE_HOURS", "12"))
 LIVE_CACHE_TTL_HOURS = int(os.environ.get("LIVE_CACHE_TTL_HOURS", "6"))
@@ -105,6 +111,10 @@ def meny_session():
         }
     )
     return s
+
+
+def platform_rest_session():
+    return meny_session()
 
 
 def init_db(conn):
@@ -239,6 +249,9 @@ def persist_live_cache(conn, live_rows):
 
 
 def product_priority(product):
+    explicit = product.get("source_priority")
+    if explicit is not None:
+        return explicit
     url = (product.get("url") or "").lower()
     image = (product.get("image") or "").lower()
     score = 0
@@ -269,8 +282,145 @@ def merge_product(by_ean, product):
     return False
 
 
+def fetch_campaign_eans():
+    try:
+        response = requests.get(
+            MENY_CAMPAIGNS_URL,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; MelkOgBrod/1.0; +https://meny.no)",
+                "Accept-Language": "nb-NO,nb;q=0.9,en;q=0.8",
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"  kampanjeside feilet: {exc}")
+        return []
+
+    html = response.text
+    eans = []
+    seen = set()
+    for match in re.findall(r'productIds\\?":\[(.*?)\]', html):
+        for ean in re.findall(r'\\"(\d{4,14})\\"', match):
+            if ean in seen:
+                continue
+            seen.add(ean)
+            eans.append(ean)
+    return eans
+
+
+def fetch_campaign_products(platform, by_ean):
+    campaign_eans = fetch_campaign_eans()
+    if not campaign_eans:
+        print("Klarte ikke hente kampanje-EAN-er fra Meny.")
+        return 0
+
+    print(f"Henter produkter fra Meny kampanjeside ({len(campaign_eans)} EAN-er)...")
+    added = 0
+    chunk_size = 25
+    total_chunks = max(1, (len(campaign_eans) + chunk_size - 1) // chunk_size)
+    for chunk_index, start in enumerate(range(0, len(campaign_eans), chunk_size), start=1):
+        chunk = campaign_eans[start : start + chunk_size]
+        response = platform.get(
+            f"{PLATFORM_REST_BASE_URL}/api/products/{PLATFORM_CHAIN_ID}/{PLATFORM_GLN}/multipleProducts",
+            params={
+                "product_ids": ",".join(chunk),
+                "fieldset": "maximal",
+                "showNotForSale": "false",
+            },
+            timeout=30,
+        )
+        if not response.ok:
+            print(f"  kampanje-chunk {chunk_index}/{total_chunks} feilet med {response.status_code}")
+            time.sleep(RATE_LIMIT_SLEEP)
+            continue
+        batch = response.json() or []
+        for raw_product in batch:
+            product = platform_product_to_catalog_product(raw_product)
+            if not product:
+                continue
+            if merge_product(by_ean, product):
+                added += 1
+        print(f"  kampanjevarer {chunk_index}/{total_chunks} (total {len(by_ean)})", end="\r")
+        time.sleep(RATE_LIMIT_SLEEP)
+    print(" " * 60, end="\r")
+    print(f"  La til {added} varer fra Meny kampanjeside")
+    return added
+
+
+def build_platform_product_name(product):
+    title = compact_text(product.get("title"))
+    subtitle = compact_text(product.get("subtitle"))
+    if title and subtitle:
+        return f"{title} {subtitle}"
+    return title or subtitle
+
+
+def platform_product_to_catalog_product(product):
+    ean = str(product.get("ean") or "").strip()
+    if not ean:
+        return None
+
+    slug = compact_text(product.get("slugifiedUrl"))
+    image_path = compact_text(product.get("imagePath"))
+    campaign_text = merge_promo_labels(
+        product.get("promotionDisplayName"),
+        product.get("promotionPriceFromPromotionId"),
+    )
+    for promo in product.get("promotions") or []:
+        campaign_text = merge_promo_labels(campaign_text, extract_campaign_text_from_offer(promo))
+
+    current_price = product.get("pricePerUnit")
+    url = f"https://meny.no/varer{slug}" if slug else ""
+
+    return {
+        "ean": ean,
+        "name": build_platform_product_name(product),
+        "brand": compact_text(product.get("brand") or product.get("vendor")),
+        "image": f"https://bilder.ngdata.no/{image_path}/medium.jpg" if image_path else None,
+        "url": url,
+        "current_price": current_price,
+        "campaign_text": campaign_text,
+        "promotionDisplayName": product.get("promotionDisplayName"),
+        "promotions": product.get("promotions"),
+        "description": product.get("description"),
+        "slugifiedUrl": slug or None,
+        "source_priority": 20,
+    }
+
+
+def fetch_platform_search_products(platform, query):
+    response = platform.get(
+        f"{PLATFORM_REST_BASE_URL}/api/products/{PLATFORM_CHAIN_ID}/{PLATFORM_GLN}/",
+        params={
+            "search": query,
+            "page": 1,
+            "page_size": 100,
+            "full_response": "true",
+            "fieldset": "maximal",
+            "showNotForSale": "false",
+        },
+        timeout=30,
+    )
+    if not response.ok:
+        return response, []
+
+    payload = response.json() or {}
+    hits = payload.get("hits", {}).get("hits", [])
+    products = []
+    for hit in hits:
+        source = hit.get("_source") if isinstance(hit, dict) else None
+        if not isinstance(source, dict):
+            continue
+        product = platform_product_to_catalog_product(source)
+        if product:
+            products.append(product)
+    return response, products
+
+
 def fetch_products(s):
     by_ean = {}
+    platform = platform_rest_session()
     pages_with_no_new = 0
     for page in range(1, MAX_CATALOG_PAGES + 1):
         r = s.get(
@@ -312,6 +462,8 @@ def fetch_products(s):
             break
         time.sleep(RATE_LIMIT_SLEEP)
 
+    fetch_campaign_products(platform, by_ean)
+
     total_queries = sum(len(items) for items in SEARCH_SUPPLEMENT_GROUPS.values())
     query_index = 0
     print("Supplerer katalog med målrettede søk...")
@@ -320,15 +472,11 @@ def fetch_products(s):
         group_added = 0
         for query in queries:
             query_index += 1
-            response = s.get(
-                f"{API_BASE}/products",
-                params={"search": query, "size": 100, "page": 1},
-            )
+            response, batch = fetch_platform_search_products(platform, query)
             if not response.ok:
                 print(f"    [{query_index}/{total_queries} {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
                 time.sleep(RATE_LIMIT_SLEEP)
                 continue
-            batch = response.json().get("data") or []
             added = 0
             for product in batch:
                 if merge_product(by_ean, product):
@@ -597,6 +745,14 @@ def merge_promo_labels(*parts):
     if not merged:
         return None
     return " · ".join(merged[:2])
+
+
+def is_unscoped_bundle_campaign(text):
+    normalized = normalize_promo_text(text)
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    return lowered in {"3 for 2", "2 for 1"} or bool(re.fullmatch(r"\d+\s+for\s+\d+", lowered))
 
 
 def pagewide_promo_aliases(title, brand, url=None):
@@ -1035,6 +1191,8 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 live_data.get("fallback_campaign_text"),
             )
             if not cached_campaign:
+                live_data = None
+            elif is_unscoped_bundle_campaign(live_data.get("fallback_campaign_text")):
                 live_data = None
         if not score and not product_campaign_text and not needs_live_data:
             stats["no_score_live_skipped"] += 1

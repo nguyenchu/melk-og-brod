@@ -1,7 +1,20 @@
 import { supabase } from './supabase';
 import type { MenyProduct } from './types';
+import { isLikelyCampaignText } from './campaigns';
 
 const MAX_DEAL_AGE_HOURS = 48;
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  avocado: ['avokado'],
+  avokado: ['avocado'],
+  speltbrod: ['speltbrod'],
+  cocla: ['coca', 'cola'],
+  coca: ['coca', 'cola'],
+  cola: ['coca', 'cola'],
+  sjokoladekake: ['sjokoladekake', 'kake', 'sjokolade'],
+  fiskeburger: ['lofotburger', 'lofoten', 'burger'],
+  lofoten: ['lofoten', 'lofotburger', 'fiskeburger'],
+  lofotburger: ['lofoten', 'fiskeburger'],
+};
 const STAPLE_PROFILES: Record<
   string,
   {
@@ -35,6 +48,39 @@ const STAPLE_PROFILES: Record<
   },
   kaffe: {
     include: ['kaffe', 'filterkaffe', 'espressobonner'],
+  },
+  avocado: {
+    include: ['avokado', 'avocado'],
+  },
+  avokado: {
+    include: ['avokado', 'avocado'],
+  },
+  tagliatelle: {
+    include: ['tagliatelle', 'pasta', 'de cecco', 'fersk pasta'],
+  },
+  sjokoladekake: {
+    include: ['sjokoladekake', 'kake', 'sjokolade'],
+  },
+  speltbrod: {
+    include: ['speltbrod', 'brod'],
+  },
+  fiskeburger: {
+    include: ['fiskeburger', 'lofotburger', 'lofoten', 'fiskekake'],
+  },
+  lofoten: {
+    include: ['lofoten', 'lofotburger', 'fiskeburger'],
+  },
+  lofotburger: {
+    include: ['lofotburger', 'lofoten', 'fiskeburger'],
+  },
+  coca: {
+    include: ['coca', 'cola', 'coca cola', 'coca-cola', 'zero', '1 5l', '1 5lx8'],
+  },
+  cola: {
+    include: ['coca', 'cola', 'coca cola', 'coca-cola', 'zero', '1 5l', '1 5lx8'],
+  },
+  zero: {
+    include: ['zero', 'coca', 'cola', 'u sukker'],
   },
   bleie: {
     include: ['bleie', 'bleier', 'buksebleie', 'lillego', 'libero', 'pampers'],
@@ -197,6 +243,9 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
 function expandSearchTerms(terms: string[]) {
   const expanded = new Set(terms);
   for (const term of terms) {
+    for (const synonym of SEARCH_SYNONYMS[term] ?? []) {
+      expanded.add(normalizeSearchText(synonym));
+    }
     for (const extra of STAPLE_PROFILES[term]?.include ?? []) {
       expanded.add(extra);
     }
@@ -309,6 +358,9 @@ export async function searchProducts(query: string, limit = 60): Promise<MenyPro
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      const aHasCampaign = isLikelyCampaignText(a.product.campaign_text) ? 1 : 0;
+      const bHasCampaign = isLikelyCampaignText(b.product.campaign_text) ? 1 : 0;
+      if (bHasCampaign !== aHasCampaign) return bHasCampaign - aHasCampaign;
       if (a.product.current_price == null) return 1;
       if (b.product.current_price == null) return -1;
       return a.product.current_price - b.product.current_price;
