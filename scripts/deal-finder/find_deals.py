@@ -150,6 +150,14 @@ def init_db(conn):
     except sqlite3.OperationalError:
         pass
     try:
+        conn.execute("ALTER TABLE products ADD COLUMN original_price REAL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE products ADD COLUMN uses_promotion INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    try:
         conn.execute("ALTER TABLE live_cache ADD COLUMN fallback_campaign_text TEXT")
     except sqlite3.OperationalError:
         pass
@@ -159,14 +167,15 @@ def load_cached_products(conn, max_age_hours):
     freshest_allowed = int(time.time() - max_age_hours * 60 * 60)
     rows = conn.execute(
         """
-        SELECT ean, name, brand, image_url, vendor_url, current_price, fetched_at
+        SELECT ean, name, brand, image_url, vendor_url, current_price,
+               original_price, uses_promotion, fetched_at
         FROM products
         WHERE fetched_at >= ?
         """,
         (freshest_allowed,),
     ).fetchall()
     products = []
-    for ean, name, brand, image_url, vendor_url, current_price, fetched_at in rows:
+    for ean, name, brand, image_url, vendor_url, current_price, original_price, uses_promotion, fetched_at in rows:
         products.append(
             {
                 "ean": ean,
@@ -175,6 +184,8 @@ def load_cached_products(conn, max_age_hours):
                 "image": image_url,
                 "url": vendor_url,
                 "current_price": current_price,
+                "original_price": original_price,
+                "uses_promotion": bool(uses_promotion) if uses_promotion is not None else False,
                 "fetched_at": fetched_at,
             }
         )
@@ -277,8 +288,36 @@ def merge_product(by_ean, product):
     if current is None:
         by_ean[ean] = product
         return True
-    if product_priority(product) > product_priority(current):
-        by_ean[ean] = product
+
+    preferred = product if product_priority(product) > product_priority(current) else current
+    other = current if preferred is product else product
+
+    merged = dict(preferred)
+    for key in (
+        "name",
+        "brand",
+        "image",
+        "url",
+        "current_price",
+        "original_price",
+        "description",
+        "slugifiedUrl",
+    ):
+        if not merged.get(key) and other.get(key):
+            merged[key] = other.get(key)
+
+    merged["uses_promotion"] = bool(preferred.get("uses_promotion") or other.get("uses_promotion"))
+    merged["campaign_text"] = merge_promo_labels(
+        preferred.get("campaign_text"),
+        preferred.get("promotionDisplayName"),
+        other.get("campaign_text"),
+        other.get("promotionDisplayName"),
+    )
+
+    if not merged.get("promotions") and other.get("promotions"):
+        merged["promotions"] = other.get("promotions")
+
+    by_ean[ean] = merged
     return False
 
 
@@ -371,6 +410,8 @@ def platform_product_to_catalog_product(product):
         campaign_text = merge_promo_labels(campaign_text, extract_campaign_text_from_offer(promo))
 
     current_price = product.get("pricePerUnit")
+    original_price = product.get("pricePerUnitOriginal")
+    uses_promo = bool(product.get("usesPromotionPrice"))
     url = f"https://meny.no/varer{slug}" if slug else ""
 
     return {
@@ -380,6 +421,8 @@ def platform_product_to_catalog_product(product):
         "image": f"https://bilder.ngdata.no/{image_path}/medium.jpg" if image_path else None,
         "url": url,
         "current_price": current_price,
+        "original_price": original_price,
+        "uses_promotion": uses_promo,
         "campaign_text": campaign_text,
         "promotionDisplayName": product.get("promotionDisplayName"),
         "promotions": product.get("promotions"),
@@ -1245,11 +1288,27 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             (live_data or {}).get("fallback_campaign_text"),
             product_campaign_text,
         )
+        median_30d = score["median"] if score else None
+        meny_original = product.get("original_price")
+        uses_promo = bool(product.get("uses_promotion"))
+
+        # Meny-first: bruk regulert førpris hvis kampanjeflagget og prisen faktisk er nede.
+        # Ellers fall tilbake til 30-d median for stille prisreduksjoner.
         drop_pct = None
-        median_30d = None
-        if score and current_price is not None:
-            median_30d = score["median"]
-            drop_pct = round((score["median"] - float(current_price)) / score["median"] * 100, 2)
+        original_price = None
+        price_source = None
+        if (
+            uses_promo
+            and meny_original is not None
+            and meny_original > float(current_price)
+        ):
+            original_price = round(float(meny_original), 2)
+            drop_pct = round((meny_original - float(current_price)) / meny_original * 100, 2)
+            price_source = "meny"
+        elif median_30d and median_30d > float(current_price):
+            drop_pct = round((median_30d - float(current_price)) / median_30d * 100, 2)
+            price_source = "median"
+
         rows.append(
             {
                 "ean": ean,
@@ -1259,6 +1318,8 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 "vendor_url": product.get("url"),
                 "current_price": round(float(current_price), 2),
                 "median_30d": median_30d,
+                "original_price": original_price,
+                "price_source": price_source,
                 "drop_pct": drop_pct,
                 "campaign_text": campaign_text,
             }
@@ -1308,8 +1369,18 @@ def main():
             continue
         eans.append(ean)
         conn.execute(
-            "INSERT OR REPLACE INTO products(ean,name,brand,image_url,vendor_url,current_price,fetched_at) VALUES(?,?,?,?,?,?,?)",
-            (ean, p.get("name"), p.get("brand"), p.get("image"), p.get("url"), p.get("current_price"), now),
+            "INSERT OR REPLACE INTO products(ean,name,brand,image_url,vendor_url,current_price,original_price,uses_promotion,fetched_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                ean,
+                p.get("name"),
+                p.get("brand"),
+                p.get("image"),
+                p.get("url"),
+                p.get("current_price"),
+                p.get("original_price"),
+                1 if p.get("uses_promotion") else 0,
+                now,
+            ),
         )
     conn.commit()
 
@@ -1385,11 +1456,17 @@ def main():
         key=lambda r: r["drop_pct"],
         reverse=True,
     )
-    print(f"\nTopp tilbud (i dag vs {HISTORY_DAYS}-dagers median på Meny):")
+    print(f"\nTopp tilbud (Meny førpris > median fallback):")
     for r in deals[:20]:
+        if r.get("price_source") == "meny":
+            baseline = f"førpris {r['original_price']:>7.2f}"
+        elif r["median_30d"] is not None:
+            baseline = f"median  {r['median_30d']:>7.2f}"
+        else:
+            baseline = "uten baseline"
         print(
             f"  -{r['drop_pct']:5.1f}%  {r['current_price']:>7.2f} kr  "
-            f"(median {r['median_30d']:>7.2f})  {r['name']}"
+            f"({baseline})  {r['name']}"
         )
     if not deals:
         print("  (ingen — utvid sample, eller sjekk API-respons)")

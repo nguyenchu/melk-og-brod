@@ -210,6 +210,18 @@ export async function removeFromCart(id: string) {
   await persist(items.filter((i) => i.id !== id));
 }
 
+export async function removeActiveProductFromCart(input: { ean?: string | null; name: string }) {
+  const items = await loadFromStorage();
+  const normalizedName = input.name.trim().toLowerCase();
+  await persist(
+    items.filter((item) => {
+      if (item.checked) return true;
+      if (input.ean) return item.ean !== input.ean;
+      return item.name.trim().toLowerCase() !== normalizedName;
+    }),
+  );
+}
+
 export async function updateQuantity(id: string, quantity: number) {
   const items = await loadFromStorage();
   if (quantity < 1) {

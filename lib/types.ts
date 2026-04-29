@@ -6,6 +6,8 @@ export type MenyProduct = {
   vendor_url: string | null;
   current_price: number | null;
   median_30d: number | null;
+  original_price: number | null;
+  price_source: 'meny' | 'median' | null;
   drop_pct: number | null;
   campaign_text: string | null;
   computed_at: string;

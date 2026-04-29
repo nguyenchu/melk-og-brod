@@ -20,9 +20,22 @@ import {
   updateQuantity,
   useCart,
 } from '@/lib/cart';
-import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
+import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { searchProducts } from '@/lib/deals';
+import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
+
+function getCartItemTotal(item: Pick<CartItem, 'price' | 'quantity' | 'campaign_text'>) {
+  if (item.price == null) return 0;
+
+  const bundleOffer = getBundlePayForOffer(item.campaign_text);
+  if (!bundleOffer) return item.price * item.quantity;
+
+  const bundleCount = Math.floor(item.quantity / bundleOffer.buy);
+  const remainder = item.quantity % bundleOffer.buy;
+  const payableUnits = bundleCount * bundleOffer.payFor + remainder;
+  return payableUnits * item.price;
+}
 
 export default function CartScreen() {
   const { items, loading } = useCart();
@@ -100,10 +113,7 @@ export default function CartScreen() {
     return map;
   }, [active]);
 
-  const total = useMemo(
-    () => items.reduce((sum, i) => sum + (i.price ?? 0) * i.quantity, 0),
-    [items],
-  );
+  const total = useMemo(() => items.reduce((sum, i) => sum + getCartItemTotal(i), 0), [items]);
   const showStickyTotal = items.length > 0 && total > 0;
 
   if (loading) {
@@ -299,6 +309,11 @@ const SearchResultRow = memo(function SearchResultRow({
   onPick: (p: MenyProduct) => void;
 }) {
   const inCart = cartQuantity > 0;
+  const isMenyPromo = item.price_source === 'meny';
+  const beforePrice = isMenyPromo ? item.original_price : item.median_30d;
+  const beforePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
+  const showDeal = item.drop_pct != null && item.drop_pct >= 5;
+  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
 
   return (
     <View style={[styles.resultRow, inCart && styles.resultRowInCart]}>
@@ -318,9 +333,20 @@ const SearchResultRow = memo(function SearchResultRow({
           <CampaignBadge text={item.campaign_text!} />
         ) : null}
       </View>
-      {item.current_price != null ? (
-        <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
-      ) : null}
+      <View style={styles.resultPriceColumn}>
+        {showDeal ? (
+          <Text style={styles.dealBadge}>−{Math.round(item.drop_pct!)} %</Text>
+        ) : null}
+        {item.current_price != null ? (
+          <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
+        ) : null}
+        {unitPriceLabel ? <Text style={styles.resultUnitPrice}>{unitPriceLabel}</Text> : null}
+        {beforePrice != null && showDeal ? (
+          <Text style={styles.resultBeforePrice}>
+            {beforePrefix} {beforePrice.toFixed(2)}
+          </Text>
+        ) : null}
+      </View>
       <Pressable
         onPress={() => onPick(item)}
         hitSlop={8}
@@ -359,6 +385,12 @@ const CartRow = memo(function CartRow({
 }) {
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
   const value = draftQuantity ?? String(item.quantity);
+  const lineTotal = getCartItemTotal(item);
+  const bundleOffer = getBundlePayForOffer(item.campaign_text);
+  const regularTotal = item.price != null ? item.price * item.quantity : null;
+  const hasBundleSavings =
+    bundleOffer != null && regularTotal != null && regularTotal - lineTotal > 0.001;
+  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.price, ean: item.ean });
 
   function commit() {
     if (draftQuantity == null) return;
@@ -371,13 +403,6 @@ const CartRow = memo(function CartRow({
 
   return (
     <View style={styles.cartRow}>
-      {item.image_url ? (
-        <Image source={item.image_url} style={styles.cartThumb} contentFit="contain" />
-      ) : (
-        <View style={[styles.cartThumb, styles.cartThumbPlaceholder]}>
-          <Ionicons name="image-outline" size={18} color="#ccc" />
-        </View>
-      )}
       <Pressable onPress={() => onToggle(item.id)} hitSlop={8}>
         <Ionicons
           name={item.checked ? 'checkbox' : 'square-outline'}
@@ -385,54 +410,71 @@ const CartRow = memo(function CartRow({
           color={item.checked ? '#2E8B57' : '#bbb'}
         />
       </Pressable>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>
-          {item.name}
-        </Text>
-        <View style={styles.cartPriceRow}>
-          {item.price != null && (
-            <Text style={styles.cartPrice}>
-              {item.price.toFixed(2)} kr
-              {item.quantity > 1 ? ` · ${(item.price * item.quantity).toFixed(2)} kr totalt` : ''}
-            </Text>
-          )}
-          {item.drop_pct != null && item.drop_pct >= 5 ? (
-            <Text style={styles.dealBadge}>−{Math.round(item.drop_pct)} %</Text>
-          ) : null}
+      {item.image_url ? (
+        <Image source={item.image_url} style={styles.cartThumb} contentFit="contain" />
+      ) : (
+        <View style={[styles.cartThumb, styles.cartThumbPlaceholder]}>
+          <Ionicons name="image-outline" size={18} color="#ccc" />
         </View>
+      )}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>{item.name}</Text>
+        <View style={styles.cartMetaRow}>
+          <View style={styles.cartPriceBlock}>
+            <View style={styles.cartPriceRow}>
+              {item.price != null && (
+                <Text style={styles.cartPrice} numberOfLines={1}>
+                  <Text style={styles.cartPricePrimary}>{item.price.toFixed(2)} kr</Text>
+                  {item.quantity > 1 ? <Text style={styles.cartPriceSecondary}> · {lineTotal.toFixed(2)} kr totalt</Text> : null}
+                </Text>
+              )}
+              {item.drop_pct != null && item.drop_pct >= 5 ? (
+                <Text style={styles.dealBadge}>−{Math.round(item.drop_pct)} %</Text>
+              ) : null}
+            </View>
+            {unitPriceLabel ? <Text style={styles.cartUnitPrice}>{unitPriceLabel}</Text> : null}
+          </View>
+          <View style={styles.cartActionsRow}>
+            <View style={styles.quantityControl}>
+              <Pressable
+                onPress={() => onChangeQuantity(item.id, Math.max(1, item.quantity - 1))}
+                hitSlop={8}
+                style={styles.quantityButton}>
+                <Ionicons name="remove" size={16} color="#444" />
+              </Pressable>
+              <TextInput
+                value={value}
+                onChangeText={(text) => setDraftQuantity(text.replace(/[^0-9]/g, ''))}
+                onFocus={() => setDraftQuantity(String(item.quantity))}
+                onBlur={commit}
+                onSubmitEditing={commit}
+                keyboardType="number-pad"
+                returnKeyType="done"
+                selectTextOnFocus
+                maxLength={3}
+                style={styles.quantityValue}
+              />
+              <Pressable
+                onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
+                hitSlop={8}
+                style={styles.quantityButton}>
+                <Ionicons name="add" size={16} color="#444" />
+              </Pressable>
+            </View>
+            <Pressable onPress={() => onRemove(item.id)} hitSlop={10} style={styles.removeButton}>
+              <Ionicons name="trash-outline" size={18} color="#999" />
+            </Pressable>
+          </View>
+        </View>
+        {hasBundleSavings ? (
+          <Text style={styles.bundleHint}>
+            Ordinært {regularTotal!.toFixed(2)} kr · kampanje trukket fra
+          </Text>
+        ) : null}
         {isLikelyCampaignText(item.campaign_text) ? (
           <CampaignBadge text={item.campaign_text!} />
         ) : null}
       </View>
-      <View style={styles.quantityControl}>
-        <Pressable
-          onPress={() => onChangeQuantity(item.id, Math.max(1, item.quantity - 1))}
-          hitSlop={8}
-          style={styles.quantityButton}>
-          <Ionicons name="remove" size={18} color="#444" />
-        </Pressable>
-        <TextInput
-          value={value}
-          onChangeText={(text) => setDraftQuantity(text.replace(/[^0-9]/g, ''))}
-          onFocus={() => setDraftQuantity(String(item.quantity))}
-          onBlur={commit}
-          onSubmitEditing={commit}
-          keyboardType="number-pad"
-          returnKeyType="done"
-          selectTextOnFocus
-          maxLength={3}
-          style={styles.quantityValue}
-        />
-        <Pressable
-          onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
-          hitSlop={8}
-          style={styles.quantityButton}>
-          <Ionicons name="add" size={18} color="#444" />
-        </Pressable>
-      </View>
-      <Pressable onPress={() => onRemove(item.id)} hitSlop={10} style={styles.removeButton}>
-        <Ionicons name="trash-outline" size={20} color="#999" />
-      </Pressable>
     </View>
   );
 });
@@ -485,7 +527,7 @@ const styles = StyleSheet.create({
   empty: { color: '#999', textAlign: 'center', paddingHorizontal: 24 },
   manualAddCard: {
     backgroundColor: '#fff',
-    padding: 14,
+    padding: 12,
     borderRadius: 10,
     marginBottom: 8,
   },
@@ -516,9 +558,9 @@ const styles = StyleSheet.create({
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     backgroundColor: '#fff',
-    padding: 12,
+    padding: 9,
     borderRadius: 10,
   },
   resultRowInCart: {
@@ -542,8 +584,8 @@ const styles = StyleSheet.create({
     color: '#2E8B57',
   },
   resultThumb: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: 8,
     backgroundColor: '#f5f5f7',
   },
@@ -551,8 +593,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  resultName: { fontSize: 14, fontWeight: '500' },
+  resultName: { fontSize: 13, fontWeight: '500' },
+  resultPriceColumn: { alignItems: 'flex-end', gap: 2 },
   resultPrice: { fontSize: 14, color: '#E10A0A', fontWeight: '600' },
+  resultUnitPrice: { fontSize: 11, color: '#777' },
+  resultBeforePrice: { fontSize: 11, color: '#999' },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
   campaignBadge: {
     flexDirection: 'row',
@@ -560,9 +605,9 @@ const styles = StyleSheet.create({
     gap: 6,
     alignSelf: 'flex-start',
     backgroundColor: '#2B6A57',
-    marginTop: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    marginTop: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 999,
   },
   campaignBadgeBundle: { backgroundColor: '#0B6B3A' },
@@ -571,20 +616,21 @@ const styles = StyleSheet.create({
   campaignBadgeClearance: { backgroundColor: '#A63D40' },
   campaignBadgeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   cartRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    alignItems: 'flex-start',
+    gap: 8,
     backgroundColor: '#fff',
-    padding: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
     borderRadius: 10,
   },
   cartThumb: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     borderRadius: 8,
     backgroundColor: '#f5f5f7',
   },
@@ -592,17 +638,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cartName: { fontSize: 15, fontWeight: '500' },
+  cartName: { fontSize: 13, fontWeight: '500' },
   cartNameDone: { color: '#aaa', textDecorationLine: 'line-through' },
-  cartPrice: { fontSize: 13, color: '#666' },
-  cartPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  cartMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 1,
+  },
+  cartPriceBlock: { flex: 1, minWidth: 0 },
+  cartPrice: { fontSize: 12, color: '#666' },
+  cartPricePrimary: { color: '#222', fontWeight: '700' },
+  cartPriceSecondary: { color: '#777', fontWeight: '500' },
+  cartPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  cartUnitPrice: { fontSize: 11, color: '#777', marginTop: 1 },
+  bundleHint: { fontSize: 11, color: '#2E8B57', marginTop: 1 },
+  cartActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    flexShrink: 0,
+  },
   dealBadge: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#A85C00',
     backgroundColor: '#FFF1D6',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
     overflow: 'hidden',
   },
@@ -616,22 +680,22 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   quantityButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
   },
   quantityValue: {
-    minWidth: 30,
+    minWidth: 24,
     textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#222',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E8B57',
     paddingVertical: 0,
   },
-  removeButton: { padding: 4 },
+  removeButton: { padding: 2 },
   stickyTotalWrap: {
     position: 'absolute',
     left: 0,
