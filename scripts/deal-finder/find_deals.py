@@ -431,7 +431,7 @@ def fetch_platform_search_products(platform, query, page=1, page_size=100):
         timeout=30,
     )
     if not response.ok:
-        return response, []
+        return response, [], None
 
     payload = response.json() or {}
     hits = payload.get("hits", {}).get("hits", [])
