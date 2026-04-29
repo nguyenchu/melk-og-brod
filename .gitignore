@@ -49,3 +49,5 @@ app-example
 /ios
 /android
 .env
+google-service-account.json
+screenshots/

@@ -54,6 +54,7 @@ MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", 
 SEARCH_SUPPLEMENTS = flattened_search_supplements()
 PRODUCT_CACHE_MAX_AGE_HOURS = int(os.environ.get("PRODUCT_CACHE_MAX_AGE_HOURS", "12"))
 LIVE_CACHE_TTL_HOURS = int(os.environ.get("LIVE_CACHE_TTL_HOURS", "6"))
+DEAD_SLUG_TTL_DAYS = int(os.environ.get("DEAD_SLUG_TTL_DAYS", "7"))
 INCREMENTAL_MODE = os.environ.get("FIND_DEALS_MODE", "incremental").lower() != "full"
 MIN_EXPECTED_ROWS = int(os.environ.get("MIN_EXPECTED_ROWS", "2000"))
 MAX_NO_SCORE_LIVE_FETCHES = int(os.environ.get("MAX_NO_SCORE_LIVE_FETCHES", "250"))
@@ -84,6 +85,8 @@ PROMO_KEYWORDS = (
 
 # Known Meny product-page migrations where an older linked page is 404,
 # but Meny still has a live replacement page with updated price/campaign info.
+DEAD_SLUG = object()  # sentinel: 404 from meny.no — cache and exclude from deals
+
 MENY_URL_OVERRIDES_BY_EAN = {
     "8718951312531": "https://meny.no/varer/personlige-artikler/tannpleie/tannkrem/colgate-tannkrem-8718951553224",
 }
@@ -128,6 +131,11 @@ def init_db(conn):
             campaign_text TEXT,
             fallback_campaign_text TEXT,
             fetched_at    INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS dead_slugs (
+            ean         TEXT PRIMARY KEY,
+            url         TEXT,
+            recorded_at INTEGER
         );
         """
     )
@@ -241,6 +249,24 @@ def persist_live_cache(conn, live_rows):
         VALUES (?, ?, ?, ?, ?)
         """,
         live_rows,
+    )
+    conn.commit()
+
+
+def load_dead_slugs(conn, ttl_days):
+    cutoff = int(time.time() - ttl_days * 86400)
+    rows = conn.execute(
+        "SELECT ean FROM dead_slugs WHERE recorded_at >= ?", (cutoff,)
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def persist_dead_slugs(conn, records):
+    if not records:
+        return
+    conn.executemany(
+        "INSERT OR REPLACE INTO dead_slugs (ean, url, recorded_at) VALUES (?, ?, ?)",
+        records,
     )
     conn.commit()
 
@@ -1065,8 +1091,7 @@ def fetch_live_meny_price(session, url):
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else None
         if status_code == 404:
-            print(f"  live-pris mangler på Meny (utgått slug): {normalized_url}")
-            return None
+            return DEAD_SLUG
         print(f"  live-pris feilet for {normalized_url}: {exc}")
         return None
     except Exception as exc:
@@ -1119,10 +1144,12 @@ def push_to_supabase(rows):
     print(f"Pushet {pushed} rader til Supabase.")
 
 
-def build_supabase_rows(products, histories, live_price_session, live_cache_by_ean=None, live_cache_rows=None):
+def build_supabase_rows(products, histories, live_price_session, live_cache_by_ean=None, live_cache_rows=None, dead_slug_eans=None, dead_slug_records=None):
     rows = []
     live_cache_by_ean = live_cache_by_ean or {}
     live_cache_rows = live_cache_rows if live_cache_rows is not None else []
+    dead_slug_eans = dead_slug_eans or set()
+    dead_slug_records = dead_slug_records if dead_slug_records is not None else []
     stats = {
         "total_products": len(products),
         "total_histories": len(histories),
@@ -1136,6 +1163,8 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         "live_fetches": 0,
         "no_score_live_fetches": 0,
         "no_score_live_skipped": 0,
+        "dead_slug_skipped": 0,
+        "dead_slug_new": 0,
     }
     sample_store_names = []
     sample_missing_store = []
@@ -1176,6 +1205,10 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         if meny and not score:
             stats["missing_score"] += 1
 
+        if ean in dead_slug_eans:
+            stats["dead_slug_skipped"] += 1
+            continue
+
         live_data = live_cache_by_ean.get(ean)
         attempted_live_fetch = False
         wants_live_without_score = (
@@ -1202,11 +1235,16 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 stats["live_cache_hits"] += 1
             else:
                 attempted_live_fetch = True
-                live_data = fetch_live_meny_price(live_price_session, product.get("url"))
+                raw_live = fetch_live_meny_price(live_price_session, product.get("url"))
                 stats["live_fetches"] += 1
                 if not score:
                     no_score_live_fetches += 1
                     stats["no_score_live_fetches"] += 1
+                if raw_live is DEAD_SLUG:
+                    stats["dead_slug_new"] += 1
+                    dead_slug_records.append((ean, product.get("url"), int(time.time())))
+                    continue
+                live_data = raw_live
                 if live_data is not None:
                     live_cache_rows.append(
                         (
@@ -1352,6 +1390,8 @@ def main():
         print("Ingen lokal historikk funnet ennå — bygger opp baseline fra dagens og fremtidige kjøringer")
     live_cache_by_ean = load_live_cache(conn, LIVE_CACHE_TTL_HOURS) if INCREMENTAL_MODE else {}
     live_cache_rows = []
+    dead_slug_eans = load_dead_slugs(conn, DEAD_SLUG_TTL_DAYS)
+    dead_slug_records = []
 
     rows, stats, sample_store_names, sample_missing_store, sample_missing_live = build_supabase_rows(
         products,
@@ -1359,8 +1399,11 @@ def main():
         live_price_session,
         live_cache_by_ean=live_cache_by_ean,
         live_cache_rows=live_cache_rows,
+        dead_slug_eans=dead_slug_eans,
+        dead_slug_records=dead_slug_records,
     )
     persist_live_cache(conn, live_cache_rows)
+    persist_dead_slugs(conn, dead_slug_records)
     persist_local_price_history(conn, rows, today)
     conn.close()
 
@@ -1376,6 +1419,8 @@ def main():
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
     print(f"  Skippet stale Meny-rader med død produktside: {stats['stale_meny_rows_skipped']}")
+    print(f"  Utgåtte slugger funnet (ny 404, cachet {DEAD_SLUG_TTL_DAYS}d): {stats['dead_slug_new']}")
+    print(f"  Utgåtte slugger hoppet over (fra cache): {stats['dead_slug_skipped']}")
     print(f"  Ferdige rader: {stats['rows_built']}")
     if stats["rows_built"] < MIN_EXPECTED_ROWS:
         print(
