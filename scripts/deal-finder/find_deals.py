@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Henter Meny-priser via Kassalapp, regner ut prisfall mot 30-dagers median,
+Henter Meny-priser direkte fra Meny, regner ut prisfall mot lokal historikk
 og dytter resultatet til Supabase-tabellen `meny_products`.
 
 Bruk:
-    export KASSALAPP_API_KEY=...
     export SUPABASE_URL=https://xxxx.supabase.co
     export SUPABASE_SERVICE_ROLE_KEY=...
     pip install -r requirements.txt
@@ -17,7 +16,6 @@ import re
 import sqlite3
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import median
 from urllib.parse import urlsplit, urlunsplit
@@ -33,8 +31,6 @@ from search_supplements import SEARCH_SUPPLEMENT_GROUPS, flattened_search_supple
 
 load_dotenv(SCRIPT_DIR / ".env")
 
-API_BASE = "https://kassal.app/api/v1"
-API_KEY = os.environ.get("KASSALAPP_API_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 MENY_CAMPAIGNS_URL = "https://meny.no/kampanjer"
@@ -50,18 +46,15 @@ PRODUCT_SAMPLE_SIZE = int(os.environ.get("PRODUCT_SAMPLE_SIZE", "1000"))
 HISTORY_DAYS = 30
 RATE_LIMIT_SLEEP = 1.1  # Hobby-tier: 60 req/min
 MENY_HISTORY_STORE = "MENY_NO"
+LOCAL_HISTORY_STORE = "MENY_DIRECT"
 CATALOG_PAGE_SIZE = 100
 MAX_CATALOG_PAGES = int(os.environ.get("MAX_CATALOG_PAGES", "250"))
 PRODUCT_LIMIT = int(os.environ.get("PRODUCT_LIMIT", "0"))
-PRICE_HISTORY_CHUNK_SIZE = int(os.environ.get("PRICE_HISTORY_CHUNK_SIZE", "100"))
-PRICE_HISTORY_WORKERS = int(os.environ.get("PRICE_HISTORY_WORKERS", "2"))
 MAX_EMPTY_PAGES_WITHOUT_NEW = int(os.environ.get("MAX_EMPTY_PAGES_WITHOUT_NEW", "80"))
 SEARCH_SUPPLEMENTS = flattened_search_supplements()
 PRODUCT_CACHE_MAX_AGE_HOURS = int(os.environ.get("PRODUCT_CACHE_MAX_AGE_HOURS", "12"))
 LIVE_CACHE_TTL_HOURS = int(os.environ.get("LIVE_CACHE_TTL_HOURS", "6"))
 INCREMENTAL_MODE = os.environ.get("FIND_DEALS_MODE", "incremental").lower() != "full"
-PRICE_HISTORY_MAX_RETRIES = int(os.environ.get("PRICE_HISTORY_MAX_RETRIES", "6"))
-PRICE_HISTORY_RETRY_BASE_SECONDS = float(os.environ.get("PRICE_HISTORY_RETRY_BASE_SECONDS", "3"))
 MIN_EXPECTED_ROWS = int(os.environ.get("MIN_EXPECTED_ROWS", "2000"))
 MAX_NO_SCORE_LIVE_FETCHES = int(os.environ.get("MAX_NO_SCORE_LIVE_FETCHES", "250"))
 NO_SCORE_LIVE_KEYWORDS = tuple(
@@ -89,18 +82,11 @@ PROMO_KEYWORDS = (
     "sommerpris",
 )
 
-# Known Meny product-page migrations where the old Kassalapp-linked page is 404,
+# Known Meny product-page migrations where an older linked page is 404,
 # but Meny still has a live replacement page with updated price/campaign info.
 MENY_URL_OVERRIDES_BY_EAN = {
     "8718951312531": "https://meny.no/varer/personlige-artikler/tannpleie/tannkrem/colgate-tannkrem-8718951553224",
 }
-
-
-def kassal_session():
-    s = requests.Session()
-    s.headers.update({"Authorization": f"Bearer {API_KEY}"})
-    return s
-
 
 def meny_session():
     s = requests.Session()
@@ -275,9 +261,8 @@ def product_priority(product):
 
 def is_meny_product(product):
     url = (product.get("url") or "").lower()
-    store = (product.get("store") or {}).get("code")
     ean = product.get("ean")
-    return bool(ean) and ("meny.no" in url or store == MENY_HISTORY_STORE)
+    return bool(ean) and "meny.no" in url
 
 
 def merge_product(by_ean, product):
@@ -432,13 +417,13 @@ def platform_product_to_catalog_product(product):
     }
 
 
-def fetch_platform_search_products(platform, query):
+def fetch_platform_search_products(platform, query, page=1, page_size=100):
     response = platform.get(
         f"{PLATFORM_REST_BASE_URL}/api/products/{PLATFORM_CHAIN_ID}/{PLATFORM_GLN}/",
         params={
             "search": query,
-            "page": 1,
-            "page_size": 100,
+            "page": page,
+            "page_size": page_size,
             "full_response": "true",
             "fieldset": "maximal",
             "showNotForSale": "false",
@@ -458,30 +443,33 @@ def fetch_platform_search_products(platform, query):
         product = platform_product_to_catalog_product(source)
         if product:
             products.append(product)
-    return response, products
+    total = payload.get("hits", {}).get("total")
+    return response, products, total
 
 
-def fetch_products(s):
-    by_ean = {}
-    platform = platform_rest_session()
+def fetch_platform_catalog_products(platform, by_ean):
     pages_with_no_new = 0
+    total_seen = None
     for page in range(1, MAX_CATALOG_PAGES + 1):
-        r = s.get(
-            f"{API_BASE}/products",
-            params={"page": page, "size": CATALOG_PAGE_SIZE},
+        response, batch, total = fetch_platform_search_products(
+            platform,
+            "",
+            page=page,
+            page_size=CATALOG_PAGE_SIZE,
         )
-        if not r.ok:
-            print(f"  [page {page}] {r.status_code}: {r.text[:120]} — stopper")
+        if not response.ok:
+            print(f"  [catalog page {page}] {response.status_code}: {response.text[:120]} — stopper")
             break
-        payload = r.json()
-        batch = payload.get("data") or []
+        if total_seen is None:
+            total_seen = total
+            print(f"Tomt Meny-søk rapporterer totalt {total_seen} treff")
         if not batch:
-            print(f"  [page {page}] tom side — ferdig")
+            print(f"  [catalog page {page}] tom side — ferdig")
             break
 
         added = 0
-        for p in batch:
-            if merge_product(by_ean, p):
+        for product in batch:
+            if merge_product(by_ean, product):
                 added += 1
 
         if added == 0:
@@ -489,22 +477,29 @@ def fetch_products(s):
         else:
             pages_with_no_new = 0
 
-        print(f"  [page {page}] +{added} Meny-varer (total {len(by_ean)})")
+        print(f"  [catalog page {page}] +{added} Meny-varer (total {len(by_ean)})")
 
         if PRODUCT_LIMIT > 0 and len(by_ean) >= PRODUCT_LIMIT:
             print(f"  nådde PRODUCT_LIMIT={PRODUCT_LIMIT}")
             break
         if len(batch) < CATALOG_PAGE_SIZE:
-            print(f"  [page {page}] siste side")
+            print(f"  [catalog page {page}] siste side")
             break
         if pages_with_no_new >= MAX_EMPTY_PAGES_WITHOUT_NEW:
             print(
-                f"  [page {page}] {MAX_EMPTY_PAGES_WITHOUT_NEW} sider uten nye Meny-varer — stopper"
+                f"  [catalog page {page}] {MAX_EMPTY_PAGES_WITHOUT_NEW} sider uten nye Meny-varer — stopper"
             )
-            time.sleep(RATE_LIMIT_SLEEP)
             break
         time.sleep(RATE_LIMIT_SLEEP)
 
+
+def fetch_products(seed_products=None):
+    by_ean = {}
+    for product in seed_products or []:
+        merge_product(by_ean, product)
+    platform = platform_rest_session()
+    print("Bygger Meny-katalog fra Meny-plattformen, kampanjer og målrettede søk...")
+    fetch_platform_catalog_products(platform, by_ean)
     fetch_campaign_products(platform, by_ean)
 
     total_queries = sum(len(items) for items in SEARCH_SUPPLEMENT_GROUPS.values())
@@ -515,7 +510,7 @@ def fetch_products(s):
         group_added = 0
         for query in queries:
             query_index += 1
-            response, batch = fetch_platform_search_products(platform, query)
+            response, batch, _total = fetch_platform_search_products(platform, query)
             if not response.ok:
                 print(f"    [{query_index}/{total_queries} {query!r}] {response.status_code}: {response.text[:120]} — hopper over")
                 time.sleep(RATE_LIMIT_SLEEP)
@@ -526,63 +521,12 @@ def fetch_products(s):
                     added += 1
             group_added += added
             print(f"    [{query_index}/{total_queries} {query!r}] +{added} Meny-varer (total {len(by_ean)})")
+            if PRODUCT_LIMIT > 0 and len(by_ean) >= PRODUCT_LIMIT:
+                print(f"    nådde PRODUCT_LIMIT={PRODUCT_LIMIT}")
+                return list(by_ean.values())
             time.sleep(RATE_LIMIT_SLEEP)
         print(f"  Ferdig med {group_name}: +{group_added} nye varer")
     return list(by_ean.values())
-
-
-def fetch_prices_bulk(s, eans):
-    if not eans:
-        return {}
-
-    def fetch_chunk(chunk):
-        attempt = 0
-        while True:
-            attempt += 1
-            response = requests.post(
-                f"{API_BASE}/products/prices-bulk",
-                headers={"Authorization": f"Bearer {API_KEY}"},
-                json={"eans": chunk, "days": HISTORY_DAYS, "aggregation": "avg"},
-                timeout=30,
-            )
-            if response.ok:
-                return response.json().get("data") or {}
-
-            if response.status_code == 429 and attempt < PRICE_HISTORY_MAX_RETRIES:
-                retry_after = response.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        wait_seconds = max(float(retry_after), PRICE_HISTORY_RETRY_BASE_SECONDS)
-                    except ValueError:
-                        wait_seconds = PRICE_HISTORY_RETRY_BASE_SECONDS * attempt
-                else:
-                    wait_seconds = PRICE_HISTORY_RETRY_BASE_SECONDS * attempt
-                print(
-                    f"  historikk 429 for chunk på {len(chunk)} EAN-er, venter {wait_seconds:.1f}s (forsøk {attempt}/{PRICE_HISTORY_MAX_RETRIES})"
-                )
-                time.sleep(wait_seconds)
-                continue
-
-            response.raise_for_status()
-
-    chunks = [eans[i : i + PRICE_HISTORY_CHUNK_SIZE] for i in range(0, len(eans), PRICE_HISTORY_CHUNK_SIZE)]
-    histories = {}
-    with ThreadPoolExecutor(max_workers=max(1, PRICE_HISTORY_WORKERS)) as executor:
-        futures = {executor.submit(fetch_chunk, chunk): chunk for chunk in chunks}
-        for future in as_completed(futures):
-            payload = future.result()
-            chunk = futures[future]
-            if isinstance(payload, list):
-                for item in payload:
-                    ean = item.get("ean")
-                    if ean:
-                        histories[ean] = item
-            elif isinstance(payload, dict):
-                histories.update(payload)
-            print(f"  historikk {min(len(histories), len(eans))}/{len(eans)}", end="\r")
-            sys.stdout.flush()
-    print(" " * 40, end="\r")
-    return histories
 
 
 def meny_points(history):
@@ -595,7 +539,7 @@ def meny_points(history):
     matching = []
     for point in points:
         store_name = (point.get("store_name") or point.get("store") or "").strip()
-        if store_name != MENY_HISTORY_STORE:
+        if store_name not in {MENY_HISTORY_STORE, LOCAL_HISTORY_STORE}:
             continue
         matching.append(point)
     return matching
@@ -618,6 +562,19 @@ def all_meny_store_names(history):
         seen.add(normalized_store)
         names.append(store_name)
     return names
+
+
+def persist_local_price_history(conn, rows, today):
+    for row in rows:
+        current_price = row.get("current_price")
+        ean = row.get("ean")
+        if not ean or current_price is None:
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO prices(ean,store,date,price) VALUES(?,?,?,?)",
+            (ean, LOCAL_HISTORY_STORE, today, current_price),
+        )
+    conn.commit()
 
 
 def score_deal(meny_history):
@@ -1332,33 +1289,35 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
 
 
 def main():
-    if not API_KEY:
-        sys.exit("Sett KASSALAPP_API_KEY i miljøet.")
-
-    s = kassal_session()
     live_price_session = meny_session()
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
 
-    print(f"Bruker historikkilde: {MENY_HISTORY_STORE}")
+    print("Bruker historikkilde: lokal Meny-historikk")
     print(f"Kjører modus: {'inkrementell' if INCREMENTAL_MODE else 'full'}")
     if INCREMENTAL_MODE:
         products = load_cached_products(conn, PRODUCT_CACHE_MAX_AGE_HOURS)
         if products:
             products_with_base_price = sum(1 for product in products if product.get("current_price") is not None)
             if products_with_base_price == 0:
-                print("Produktcache mangler current_price — gjør full katalogsync for å bygge opp ny cache")
-                products = fetch_products(s)
+                print("Produktcache mangler current_price — bygger Meny-katalog på nytt")
+                products = fetch_products()
             else:
                 print(
                     f"Bruker lokal produktcache ({len(products)} varer, {products_with_base_price} med grunnpris, maks {PRODUCT_CACHE_MAX_AGE_HOURS} t gammel)"
                 )
         else:
-            print("Ingen fersk produktcache funnet — gjør full katalogsync")
-            products = fetch_products(s)
+            stale_products = load_cached_products(conn, 24 * 365 * 10)
+            if stale_products:
+                print(
+                    f"Ingen fersk produktcache funnet — gjenbruker {len(stale_products)} eldre varer som seed og oppdaterer fra Meny"
+                )
+            else:
+                print("Ingen lokal produktcache funnet — bygger Meny-katalog fra søk og kampanjer")
+            products = fetch_products(seed_products=stale_products)
     else:
-        print("Synker Meny-katalog fra Kassalapp...")
-        products = fetch_products(s)
+        print("Bygger Meny-katalog fra søk og kampanjer...")
+        products = fetch_products(seed_products=load_cached_products(conn, 24 * 365 * 10))
     print(f"  fikk {len(products)}")
 
     eans = []
@@ -1385,25 +1344,12 @@ def main():
     conn.commit()
 
     today = time.strftime("%Y-%m-%d")
-    cached_histories, fresh_history_eans = load_cached_histories(conn, eans, today)
+    cached_histories, _fresh_history_eans = load_cached_histories(conn, eans, today)
     histories = dict(cached_histories)
-    eans_needing_history = [ean for ean in eans if (not INCREMENTAL_MODE) or ean not in fresh_history_eans]
-
-    print(
-        f"Henter {HISTORY_DAYS}-dagers prishistorikk for {len(eans_needing_history)}/{len(eans)} EAN-er..."
-    )
     if cached_histories:
-        print(f"  gjenbruker lokal historikk for {len(fresh_history_eans)} EAN-er med dagens data")
-    fetched_histories = fetch_prices_bulk(s, eans_needing_history) if eans_needing_history else {}
-    histories.update(fetched_histories)
-
-    for ean, history in fetched_histories.items():
-        for p in meny_points(history):
-            conn.execute(
-                "INSERT OR REPLACE INTO prices(ean,store,date,price) VALUES(?,?,?,?)",
-                (ean, p.get("store") or p.get("store_name"), p.get("date"), p.get("price")),
-            )
-    conn.commit()
+        print(f"Gjenbruker lokal historikk for {len(cached_histories)}/{len(eans)} varer")
+    else:
+        print("Ingen lokal historikk funnet ennå — bygger opp baseline fra dagens og fremtidige kjøringer")
     live_cache_by_ean = load_live_cache(conn, LIVE_CACHE_TTL_HOURS) if INCREMENTAL_MODE else {}
     live_cache_rows = []
 
@@ -1415,6 +1361,7 @@ def main():
         live_cache_rows=live_cache_rows,
     )
     persist_live_cache(conn, live_cache_rows)
+    persist_local_price_history(conn, rows, today)
     conn.close()
 
     print("\nDebug:")
@@ -1425,7 +1372,7 @@ def main():
     print(f"  Live-hentinger uten historikkscore: {stats['no_score_live_fetches']}")
     print(f"  Varer uten score hoppet over for live-oppslag: {stats['no_score_live_skipped']}")
     print(f"  Mangler grunnpris: {stats['missing_base_price']}")
-    print(f"  Ingen historikkmatch for {MENY_HISTORY_STORE}: {stats['missing_store_match']}")
+    print(f"  Ingen historikkmatch for Meny-historikk: {stats['missing_store_match']}")
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
     print(f"  Skippet stale Meny-rader med død produktside: {stats['stale_meny_rows_skipped']}")
@@ -1435,7 +1382,7 @@ def main():
             f"  ADVARSEL: Bare {stats['rows_built']} rader ble bygget, som er lavere enn forventet minimum {MIN_EXPECTED_ROWS}."
         )
         print(
-            "  Dette tyder ofte på svak katalogcache, manglende grunnpriser eller for få varer med Meny-historikk."
+            "  Dette tyder ofte på svak katalogcache, manglende grunnpriser eller for lite lokal historikk ennå."
         )
     if sample_store_names:
         print("  Eksempel på Meny-butikknavn i historikken:")
