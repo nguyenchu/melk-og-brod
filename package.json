@@ -11,7 +11,9 @@
     "lint": "expo lint",
     "screenshots": "bash scripts/take_screenshots.sh",
     "build:android": "eas build --platform android --profile production --non-interactive",
-    "submit:android": "eas submit --platform android --latest"
+    "build:android:local": "eas build --platform android --profile production --local --non-interactive",
+    "submit:android": "eas submit --platform android --latest",
+    "submit:android:local": "eas submit --platform android --path"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
