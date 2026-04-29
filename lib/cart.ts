@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
-import { supabase } from './supabase';
+import { hasSupabaseConfig, requireSupabase } from './supabase';
 import type { CartItem } from './types';
 
 const STORAGE_KEY = 'cart.v1';
@@ -55,6 +55,8 @@ function uid() {
 }
 
 async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
+  if (!hasSupabaseConfig()) return items;
+
   const missingProductDataByEan = items
     .filter((item) => item.ean && (!item.image_url || !item.campaign_text))
     .map((item) => item.ean as string);
@@ -65,6 +67,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
 
   if (missingProductDataByEan.length === 0 && missingProductDataByName.length === 0) return items;
 
+  const supabase = requireSupabase();
   const eanLookup = missingProductDataByEan.length
     ? await supabase
         .from('meny_products')
@@ -141,9 +144,15 @@ export function useCart() {
   const [loading, setLoading] = useState(true);
 
   const sync = useCallback(async () => {
-    const next = await hydrateCartProductData(await loadFromStorage());
-    setItems([...next]);
-    setLoading(false);
+    try {
+      const next = await hydrateCartProductData(await loadFromStorage());
+      setItems([...next]);
+    } catch {
+      const fallback = await loadFromStorage();
+      setItems([...fallback]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

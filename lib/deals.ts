@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { requireSupabase } from './supabase';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
@@ -307,6 +307,7 @@ function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
 }
 
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
+  const supabase = requireSupabase();
   const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('meny_products')
@@ -322,6 +323,7 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
 }
 
 export async function searchProducts(query: string, limit = 60): Promise<MenyProduct[]> {
+  const supabase = requireSupabase();
   const q = query.trim();
   if (q.length < 2) return [];
   const rawTerms = q
