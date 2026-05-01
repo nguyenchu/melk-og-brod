@@ -105,9 +105,7 @@ export default function DealsScreen() {
           </View>
         ) : (
           <View style={styles.headerBlock}>
-            <Text style={styles.headerSub}>
-              Beste prisfall på Meny mot 30-dagers median
-            </Text>
+            <Text style={styles.headerSub}>Aktive kampanjer fra Meny</Text>
             {latestComputedAt ? (
               <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
             ) : null}

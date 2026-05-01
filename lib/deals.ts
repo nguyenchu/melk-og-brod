@@ -2,7 +2,7 @@ import { requireSupabase } from './supabase';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
-const MAX_DEAL_AGE_HOURS = 48;
+const MAX_DEAL_AGE_HOURS = 24;
 const SEARCH_SYNONYMS: Record<string, string[]> = {
   avocado: ['avokado'],
   avokado: ['avocado'],
@@ -316,6 +316,7 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
     .gte('drop_pct', minDropPct)
     .gte('computed_at', freshestAllowed)
     .not('vendor_url', 'ilike', '%kioskvarer%')
+    .eq('price_source', 'meny')
     .order('drop_pct', { ascending: false })
     .limit(limit * 2);
   if (error) throw error;
