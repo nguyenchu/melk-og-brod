@@ -23,6 +23,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
       - uses: ruby/setup-ruby@v1
         with:
