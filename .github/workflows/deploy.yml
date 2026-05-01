@@ -1,0 +1,80 @@
+name: Deploy til Google Play
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Bygg og submit Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Installer avhengigheter
+        run: npm ci
+
+      - name: Generer Android-prosjekt
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Legg til signing-config i build.gradle
+        run: |
+          echo '${{ secrets.ANDROID_KEYSTORE_BASE64 }}' | base64 -d > android/app/release.keystore
+          python3 - <<'EOF'
+          import re
+
+          with open('android/app/build.gradle', 'r') as f:
+              content = f.read()
+
+          release_config = """
+                  release {
+                      storeFile file("release.keystore")
+                      storePassword System.getenv("ANDROID_STORE_PASSWORD")
+                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                  }"""
+
+          content = re.sub(r'(signingConfigs \{)', r'\1' + release_config, content)
+          content = re.sub(
+              r'signingConfig signingConfigs\.debug(\s+minifyEnabled)',
+              r'signingConfig signingConfigs.release\1',
+              content
+          )
+
+          with open('android/app/build.gradle', 'w') as f:
+              f.write(content)
+
+          print("Signing config lagt til")
+          EOF
+
+      - name: Bygg release AAB
+        run: ./gradlew bundleRelease
+        working-directory: android
+        env:
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Skriv Google service account-nøkkel
+        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
+
+      - name: Submit til Google Play (internal)
+        run: bundle exec fastlane supply --aab android/app/build/outputs/bundle/release/app-release.aab --track internal --json_key google-service-account.json --skip_upload_metadata --skip_upload_images --skip_upload_screenshots

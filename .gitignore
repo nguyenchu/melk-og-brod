@@ -51,3 +51,5 @@ app-example
 .env
 google-service-account.json
 screenshots/
+
+release.keystore
