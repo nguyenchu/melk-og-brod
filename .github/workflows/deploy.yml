@@ -32,6 +32,17 @@ jobs:
       - name: Installer avhengigheter
         run: npm ci
 
+      - name: Sett versionCode
+        run: |
+          VERSION_CODE=$(( ${{ github.run_number }} + 100 ))
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            cfg.expo.android.versionCode = ${VERSION_CODE};
+            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2) + '\n');
+            console.log('versionCode satt til ${VERSION_CODE}');
+          "
+
       - name: Generer Android-prosjekt
         run: npx expo prebuild --platform android --no-install
 
