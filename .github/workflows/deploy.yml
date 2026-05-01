@@ -57,6 +57,8 @@ jobs:
       - name: Legg til signing-config i build.gradle
         run: |
           echo '${{ secrets.ANDROID_KEYSTORE_BASE64 }}' | base64 -d > android/app/release.keystore
+          echo "=== Keystore SHA1 ==="
+          keytool -list -keystore android/app/release.keystore -storepass '${{ secrets.ANDROID_STORE_PASSWORD }}' -v 2>&1 | grep -E 'SHA1|SHA-1|Alias name'
           python3 - <<'EOF'
           import re
 
@@ -84,6 +86,10 @@ jobs:
 
           print("Signing config lagt til")
           EOF
+          echo "=== signingConfigs-blokk i build.gradle ==="
+          grep -A 20 'signingConfigs' android/app/build.gradle || true
+          echo "=== buildTypes release-blokk ==="
+          grep -A 10 'release {' android/app/build.gradle || true
 
       - name: Bygg release AAB
         run: ./gradlew bundleRelease
