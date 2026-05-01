@@ -59,6 +59,7 @@ jobs:
           release_config = """
                   release {
                       storeFile file("release.keystore")
+                      storeType "JKS"
                       storePassword System.getenv("ANDROID_STORE_PASSWORD")
                       keyAlias System.getenv("ANDROID_KEY_ALIAS")
                       keyPassword System.getenv("ANDROID_KEY_PASSWORD")
