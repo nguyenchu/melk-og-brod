@@ -316,11 +316,17 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
     .gte('drop_pct', minDropPct)
     .gte('computed_at', freshestAllowed)
     .not('vendor_url', 'ilike', '%kioskvarer%')
-    .eq('price_source', 'meny')
     .order('drop_pct', { ascending: false })
     .limit(limit * 2);
   if (error) throw error;
-  return disambiguateDisplayNames(dedupeProducts((data ?? []) as MenyProduct[]).slice(0, limit));
+  const products = (data ?? []) as MenyProduct[];
+  const sorted = products.sort((a, b) => {
+    const aIsMeny = a.price_source === 'meny' ? 1 : 0;
+    const bIsMeny = b.price_source === 'meny' ? 1 : 0;
+    if (bIsMeny !== aIsMeny) return bIsMeny - aIsMeny;
+    return (b.drop_pct ?? 0) - (a.drop_pct ?? 0);
+  });
+  return disambiguateDisplayNames(dedupeProducts(sorted).slice(0, limit));
 }
 
 export async function searchProducts(query: string, limit = 60): Promise<MenyProduct[]> {

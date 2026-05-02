@@ -105,7 +105,7 @@ export default function DealsScreen() {
           </View>
         ) : (
           <View style={styles.headerBlock}>
-            <Text style={styles.headerSub}>Aktive kampanjer fra Meny</Text>
+            <Text style={styles.headerSub}>Kampanjer og prisfall fra Meny</Text>
             {latestComputedAt ? (
               <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
             ) : null}
@@ -212,9 +212,12 @@ function DealRow({
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
       </View>
       <View style={styles.right}>
-        <View style={styles.dropBadge}>
-          <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
+        <View style={[styles.dropBadge, !isMenyPromo && styles.dropBadgeMedian]}>
+          <Text style={[styles.dropText, !isMenyPromo && styles.dropTextMedian]}>−{drop.toFixed(0)}%</Text>
         </View>
+        <Text style={[styles.sourceLabel, isMenyPromo ? styles.sourceLabelMeny : styles.sourceLabelMedian]}>
+          {isMenyPromo ? 'Kampanje' : 'Prisfall'}
+        </Text>
         {inCart ? (
           <View style={styles.quantityControl}>
             <Pressable onPress={onDecrement} hitSlop={8} style={styles.quantityButton}>
@@ -318,7 +321,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
+  dropBadgeMedian: { backgroundColor: '#F0F0F3' },
   dropText: { color: '#A85C00', fontWeight: '700', fontSize: 12 },
+  dropTextMedian: { color: '#666' },
+  sourceLabel: { fontSize: 10, fontWeight: '600' },
+  sourceLabelMeny: { color: '#2B6A57' },
+  sourceLabelMedian: { color: '#999' },
   addBtn: {
     backgroundColor: '#E10A0A',
     width: 36,
