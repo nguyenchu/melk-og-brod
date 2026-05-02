@@ -115,7 +115,7 @@ export default function DealsScreen() {
       ListEmptyComponent={
         !error ? (
           <Text style={styles.empty}>
-            Ingen ferske tilbud akkurat nå. Kjør `find_deals.py` på nytt for å hente oppdaterte priser.
+            Ingen aktive kampanjer akkurat nå. Prøv igjen senere.
           </Text>
         ) : null
       }
