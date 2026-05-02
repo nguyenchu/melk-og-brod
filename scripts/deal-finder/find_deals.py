@@ -58,6 +58,7 @@ DEAD_SLUG_TTL_DAYS = int(os.environ.get("DEAD_SLUG_TTL_DAYS", "7"))
 INCREMENTAL_MODE = os.environ.get("FIND_DEALS_MODE", "incremental").lower() != "full"
 MIN_EXPECTED_ROWS = int(os.environ.get("MIN_EXPECTED_ROWS", "2000"))
 MAX_NO_SCORE_LIVE_FETCHES = int(os.environ.get("MAX_NO_SCORE_LIVE_FETCHES", "250"))
+MAX_TOTAL_LIVE_FETCHES = int(os.environ.get("MAX_TOTAL_LIVE_FETCHES", "0"))  # 0 = ubegrenset
 NO_SCORE_LIVE_KEYWORDS = tuple(
     keyword.strip().lower()
     for keyword in os.environ.get(
@@ -1175,6 +1176,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         "dead_slug_skipped": 0,
         "dead_slug_new": 0,
     }
+    total_live_fetches = 0
     sample_store_names = []
     sample_missing_store = []
     sample_missing_live = []
@@ -1243,12 +1245,17 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             if live_data is not None:
                 stats["live_cache_hits"] += 1
             else:
-                attempted_live_fetch = True
-                raw_live = fetch_live_meny_price(live_price_session, product.get("url"))
-                stats["live_fetches"] += 1
-                if not score:
-                    no_score_live_fetches += 1
-                    stats["no_score_live_fetches"] += 1
+                if MAX_TOTAL_LIVE_FETCHES > 0 and total_live_fetches >= MAX_TOTAL_LIVE_FETCHES:
+                    needs_live_data = False
+                    live_data = None
+                else:
+                    attempted_live_fetch = True
+                    raw_live = fetch_live_meny_price(live_price_session, product.get("url"))
+                    total_live_fetches += 1
+                    stats["live_fetches"] += 1
+                    if not score:
+                        no_score_live_fetches += 1
+                        stats["no_score_live_fetches"] += 1
                 if raw_live is DEAD_SLUG:
                     stats["dead_slug_new"] += 1
                     dead_slug_records.append((ean, product.get("url"), int(time.time())))

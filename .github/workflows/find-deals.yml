@@ -21,10 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
+      PYTHONUNBUFFERED: '1'
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       FIND_DEALS_MODE: ${{ inputs.mode || 'incremental' }}
       PRODUCT_SAMPLE_SIZE: '1500'
+      MAX_TOTAL_LIVE_FETCHES: '600'
     steps:
       - uses: actions/checkout@v4
 
