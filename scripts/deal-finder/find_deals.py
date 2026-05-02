@@ -530,6 +530,8 @@ def fetch_products(seed_products=None):
 
     total_queries = sum(len(items) for items in SEARCH_SUPPLEMENT_GROUPS.values())
     query_index = 0
+    consecutive_empty = 0
+    max_consecutive_empty = int(os.environ.get("SUPPLEMENT_CONSECUTIVE_EMPTY_MAX", "20"))
     print("Supplerer katalog med målrettede søk...")
     for group_name, queries in SEARCH_SUPPLEMENT_GROUPS.items():
         print(f"  Gruppe {group_name}: {len(queries)} søk")
@@ -547,6 +549,13 @@ def fetch_products(seed_products=None):
                     added += 1
             group_added += added
             print(f"    [{query_index}/{total_queries} {query!r}] +{added} Meny-varer (total {len(by_ean)})")
+            if added == 0:
+                consecutive_empty += 1
+            else:
+                consecutive_empty = 0
+            if consecutive_empty >= max_consecutive_empty:
+                print(f"    {max_consecutive_empty} sammenhengende søk uten nye varer — stopper supplement-søk tidlig")
+                return list(by_ean.values())
             if PRODUCT_LIMIT > 0 and len(by_ean) >= PRODUCT_LIMIT:
                 print(f"    nådde PRODUCT_LIMIT={PRODUCT_LIMIT}")
                 return list(by_ean.values())
