@@ -619,7 +619,10 @@ def score_deal(meny_history):
     sorted_by_date = sorted(meny_history, key=lambda p: p.get("date", ""))
     today = sorted_by_date[-1]
     today_price = today.get("price")
-    baseline = median(p["price"] for p in sorted_by_date[:-1] if p.get("price"))
+    prev_prices = [p["price"] for p in sorted_by_date[:-1] if p.get("price")]
+    if not prev_prices:
+        return None
+    baseline = median(prev_prices)
     if not today_price or not baseline or baseline == 0:
         return None
     return {
