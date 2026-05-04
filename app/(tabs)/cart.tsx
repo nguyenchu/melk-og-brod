@@ -28,6 +28,8 @@ import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
 
+type SearchMode = 'all' | 'deals';
+
 function getCartItemTotal(item: Pick<CartItem, 'price' | 'quantity' | 'campaign_text'>) {
   if (item.price == null) return 0;
 
@@ -47,9 +49,10 @@ export default function CartScreen() {
   const [manualPrice, setManualPrice] = useState('');
   const [results, setResults] = useState<MenyProduct[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchMode, setSearchMode] = useState<SearchMode>('all');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const runSearch = useCallback(async (q: string) => {
+  const runSearch = useCallback(async (q: string, mode: SearchMode) => {
     if (q.trim().length < 2) {
       setResults([]);
       setSearching(false);
@@ -61,7 +64,7 @@ export default function CartScreen() {
     }
     setSearching(true);
     try {
-      const rows = await searchProducts(q);
+      const rows = await searchProducts(q, { dealsOnly: mode === 'deals' });
       setResults(rows);
     } catch (e: any) {
       Alert.alert('Søkefeil', e.message);
@@ -72,11 +75,11 @@ export default function CartScreen() {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => runSearch(query), 250);
+    debounceRef.current = setTimeout(() => runSearch(query, searchMode), 250);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, runSearch]);
+  }, [query, runSearch, searchMode]);
 
   async function onAddProduct(p: MenyProduct) {
     await addToCart({
@@ -169,6 +172,24 @@ export default function CartScreen() {
           </Pressable>
         ) : null}
       </View>
+      {showSearchPanel ? (
+        <View style={styles.searchModeRow}>
+          <Pressable
+            onPress={() => setSearchMode('all')}
+            style={[styles.searchModeChip, searchMode === 'all' && styles.searchModeChipActive]}>
+            <Text style={[styles.searchModeText, searchMode === 'all' && styles.searchModeTextActive]}>
+              Alle varer
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSearchMode('deals')}
+            style={[styles.searchModeChip, searchMode === 'deals' && styles.searchModeChipActive]}>
+            <Text style={[styles.searchModeText, searchMode === 'deals' && styles.searchModeTextActive]}>
+              Bare tilbud
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {showSearchPanel ? (
         <SearchResults
@@ -176,6 +197,7 @@ export default function CartScreen() {
           manualPrice={manualPrice}
           onChangeManualPrice={setManualPrice}
           results={results}
+          searchMode={searchMode}
           activeCartByEan={activeCartByEan}
           searching={searching}
           onPick={onAddProduct}
@@ -245,7 +267,7 @@ export default function CartScreen() {
                     </Pressable>
                   </View>
                   {done.map((i) => (
-                    <SwipeableCartRow
+                    <CartRow
                       key={i.id}
                       item={i}
                       onToggle={toggleChecked}
@@ -269,6 +291,7 @@ function SearchResults({
   manualPrice,
   onChangeManualPrice,
   results,
+  searchMode,
   activeCartByEan,
   searching,
   onPick,
@@ -279,6 +302,7 @@ function SearchResults({
   manualPrice: string;
   onChangeManualPrice: (value: string) => void;
   results: MenyProduct[];
+  searchMode: SearchMode;
   activeCartByEan: Map<string, number>;
   searching: boolean;
   onPick: (p: MenyProduct) => void;
@@ -316,6 +340,9 @@ function SearchResults({
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       windowSize={7}
+      ListHeaderComponent={
+        searchMode === 'deals' ? <Text style={styles.searchHint}>Viser bare varer med aktiv kampanje eller prisfall</Text> : null
+      }
       ListEmptyComponent={
         searching ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
@@ -571,6 +598,28 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   searchInput: { flex: 1, fontSize: 16 },
+  searchModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    marginTop: -2,
+    marginBottom: 8,
+  },
+  searchModeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e2e6',
+  },
+  searchModeChipActive: {
+    backgroundColor: '#E10A0A',
+    borderColor: '#E10A0A',
+  },
+  searchModeText: { fontSize: 12, fontWeight: '600', color: '#666' },
+  searchModeTextActive: { color: '#fff' },
+  searchHint: { color: '#666', fontSize: 12, paddingTop: 4, paddingBottom: 2 },
   listContent: { paddingHorizontal: 12, paddingBottom: 32, gap: 6 },
   sectionTitle: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 8, marginBottom: 4 },
   emptyBox: { alignItems: 'center', padding: 48, gap: 12 },

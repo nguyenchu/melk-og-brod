@@ -4,6 +4,9 @@ import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
 const DEALS_CACHE_KEY = 'deals.cache.v1';
+const DEFAULT_SEARCH_LIMIT = 60;
+const DEAL_SEARCH_LIMIT = 80;
+const ACTIVE_DEAL_DROP_PCT = 5;
 
 export async function saveCachedDeals(deals: MenyProduct[]) {
   await AsyncStorage.setItem(DEALS_CACHE_KEY, JSON.stringify(deals));
@@ -13,6 +16,17 @@ export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
   const raw = await AsyncStorage.getItem(DEALS_CACHE_KEY);
   if (!raw) return null;
   return JSON.parse(raw) as MenyProduct[];
+}
+
+function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_source'>) {
+  return product.price_source === 'meny' || isLikelyCampaignText(product.campaign_text);
+}
+
+export function isActiveDealProduct(
+  product: Pick<MenyProduct, 'campaign_text' | 'price_source' | 'drop_pct'>,
+  minDropPct = ACTIVE_DEAL_DROP_PCT,
+) {
+  return hasCampaignSignal(product) || (product.drop_pct ?? 0) >= minDropPct;
 }
 
 const MAX_DEAL_AGE_HOURS = 36;
@@ -167,7 +181,8 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
   const name = normalizeSearchText(product.name);
   const brand = normalizeSearchText(product.brand ?? '');
   const vendorUrl = normalizeSearchText(product.vendor_url ?? '');
-  const haystack = `${name} ${brand}`.trim();
+  const campaignText = normalizeSearchText(product.campaign_text ?? '');
+  const haystack = `${name} ${brand} ${campaignText}`.trim();
   const words = haystack.split(/\s+/).filter(Boolean);
   const vendorWords = vendorUrl.split(/\s+/).filter(Boolean);
   const stapleProfile = getStapleProfile(terms);
@@ -179,8 +194,9 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
     const suffixWord = !exactWord && words.some((word) => word.endsWith(term));
     const containsWord = words.some((word) => word.includes(term));
     const brandPrefix = brand.startsWith(term);
+    const inCampaign = campaignText.includes(term);
     const inVendor = vendorWords.includes(term);
-    return { exactWord, prefixWord, suffixWord, containsWord, brandPrefix, inVendor };
+    return { exactWord, prefixWord, suffixWord, containsWord, brandPrefix, inCampaign, inVendor };
   };
 
   let score = 0;
@@ -203,6 +219,7 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
     if (m.prefixWord) score += 140;
     if (m.suffixWord) score += 110;
     if (m.brandPrefix) score += 50;
+    if (m.inCampaign) score += 75;
     if (m.inVendor) score += 60;
     if (m.containsWord) score += term.length <= 3 ? 8 : 20;
   }
@@ -249,6 +266,8 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
   if (name === terms.join(' ')) score += 200;
   if (matchedTerms === terms.length) score += 120;
   else if (matchedTerms > 0) score += matchedTerms * 24;
+  if (hasCampaignSignal(product)) score += 180;
+  if ((product.drop_pct ?? 0) >= ACTIVE_DEAL_DROP_PCT) score += Math.min(140, (product.drop_pct ?? 0) * 5);
   if (product.current_price != null) score += Math.max(0, 20 - product.current_price / 20);
   return score;
 }
@@ -302,18 +321,22 @@ function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
 function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
   const seen = new Map<string, MenyProduct>();
   for (const product of products) {
-    const nameKey = normalizeSearchText(product.name).replace(/\s+/g, ' ').trim();
-    const priceKey = product.current_price != null ? product.current_price.toFixed(2) : 'null';
-    const key = `${nameKey}|${priceKey}`;
+    const key = product.ean || `${normalizeSearchText(product.name).replace(/\s+/g, ' ').trim()}|${product.current_price != null ? product.current_price.toFixed(2) : 'null'}`;
     const existing = seen.get(key);
     if (!existing) {
       seen.set(key, product);
       continue;
     }
     const existingScore =
-      (existing.image_url ? 2 : 0) + (existing.brand ? 1 : 0) + (existing.drop_pct != null ? 1 : 0);
+      (existing.image_url ? 2 : 0) +
+      (existing.brand ? 1 : 0) +
+      (existing.drop_pct != null ? 1 : 0) +
+      (hasCampaignSignal(existing) ? 3 : 0);
     const candidateScore =
-      (product.image_url ? 2 : 0) + (product.brand ? 1 : 0) + (product.drop_pct != null ? 1 : 0);
+      (product.image_url ? 2 : 0) +
+      (product.brand ? 1 : 0) +
+      (product.drop_pct != null ? 1 : 0) +
+      (hasCampaignSignal(product) ? 3 : 0);
     if (candidateScore > existingScore) seen.set(key, product);
   }
   return [...seen.values()];
@@ -322,28 +345,33 @@ function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
   const supabase = requireSupabase();
   const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();
+  const candidateLimit = Math.max(limit * 8, 1200);
   const { data, error } = await supabase
     .from('meny_products')
     .select('*')
-    .not('drop_pct', 'is', null)
-    .gte('drop_pct', minDropPct)
     .gte('computed_at', freshestAllowed)
     .not('vendor_url', 'ilike', '%kioskvarer%')
-    .order('drop_pct', { ascending: false })
-    .limit(limit * 2);
+    .or(`drop_pct.gte.${minDropPct},price_source.eq.meny,campaign_text.not.is.null`)
+    .limit(candidateLimit);
   if (error) throw error;
-  const products = (data ?? []) as MenyProduct[];
+  const products = ((data ?? []) as MenyProduct[]).filter((product) => isActiveDealProduct(product, minDropPct));
   const sorted = products.sort((a, b) => {
-    const aIsMeny = a.price_source === 'meny' ? 1 : 0;
-    const bIsMeny = b.price_source === 'meny' ? 1 : 0;
-    if (bIsMeny !== aIsMeny) return bIsMeny - aIsMeny;
+    const aIsCampaign = hasCampaignSignal(a) ? 1 : 0;
+    const bIsCampaign = hasCampaignSignal(b) ? 1 : 0;
+    if (bIsCampaign !== aIsCampaign) return bIsCampaign - aIsCampaign;
     return (b.drop_pct ?? 0) - (a.drop_pct ?? 0);
   });
   return disambiguateDisplayNames(dedupeProducts(sorted).slice(0, limit));
 }
 
-export async function searchProducts(query: string, limit = 60): Promise<MenyProduct[]> {
+export async function searchProducts(
+  query: string,
+  options?: number | { limit?: number; dealsOnly?: boolean },
+): Promise<MenyProduct[]> {
   const supabase = requireSupabase();
+  const normalizedOptions = typeof options === 'number' ? { limit: options } : options ?? {};
+  const limit = normalizedOptions.limit ?? DEFAULT_SEARCH_LIMIT;
+  const dealsOnly = normalizedOptions.dealsOnly ?? false;
   const q = query.trim();
   if (q.length < 2) return [];
   const rawTerms = q
@@ -364,29 +392,41 @@ export async function searchProducts(query: string, limit = 60): Promise<MenyPro
       return [
         `name.ilike.%${escaped}%`,
         `brand.ilike.%${escaped}%`,
+        `campaign_text.ilike.%${escaped}%`,
         `vendor_url.ilike.%${escaped}%`,
       ];
     })
     .join(',');
-  const candidateLimit = stapleProfile ? Math.max(limit * 24, 1500) : Math.max(limit * 20, 600);
-  const { data, error } = await supabase
-    .from('meny_products')
-    .select('*')
-    .or(clauses)
-    .limit(candidateLimit);
+  const candidateLimit = dealsOnly
+    ? Math.max(limit * 28, 1000)
+    : stapleProfile
+      ? Math.max(limit * 24, 1500)
+      : Math.max(limit * 24, 900);
+  let queryBuilder = supabase.from('meny_products').select('*').or(clauses);
+  if (dealsOnly) {
+    queryBuilder = queryBuilder.or(
+      `drop_pct.gte.${ACTIVE_DEAL_DROP_PCT},price_source.eq.meny,campaign_text.not.is.null`,
+    );
+  }
+  const { data, error } = await queryBuilder.limit(candidateLimit);
   if (error) throw error;
   const ranked = ((data ?? []) as MenyProduct[])
+    .filter((product) => (dealsOnly ? isActiveDealProduct(product, ACTIVE_DEAL_DROP_PCT) : true))
     .map((product) => ({ product, score: scoreProduct(product, terms) }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
-      const aHasCampaign = isLikelyCampaignText(a.product.campaign_text) ? 1 : 0;
-      const bHasCampaign = isLikelyCampaignText(b.product.campaign_text) ? 1 : 0;
+      const aHasCampaign = hasCampaignSignal(a.product) ? 1 : 0;
+      const bHasCampaign = hasCampaignSignal(b.product) ? 1 : 0;
       if (bHasCampaign !== aHasCampaign) return bHasCampaign - aHasCampaign;
+      if ((b.product.drop_pct ?? 0) !== (a.product.drop_pct ?? 0)) {
+        return (b.product.drop_pct ?? 0) - (a.product.drop_pct ?? 0);
+      }
       if (a.product.current_price == null) return 1;
       if (b.product.current_price == null) return -1;
       return a.product.current_price - b.product.current_price;
     })
     .map((entry) => entry.product);
-  return disambiguateDisplayNames(dedupeProducts(ranked).slice(0, limit));
+  const finalLimit = dealsOnly ? Math.max(limit, DEAL_SEARCH_LIMIT) : limit;
+  return disambiguateDisplayNames(dedupeProducts(ranked).slice(0, finalLimit));
 }

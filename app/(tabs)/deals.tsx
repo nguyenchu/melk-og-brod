@@ -84,7 +84,7 @@ export default function DealsScreen() {
     }
     try {
       setError(null);
-      const rows = await fetchTopDeals(0.1, 100);
+      const rows = await fetchTopDeals(0.1, 220);
       setDeals(rows);
       setFromCache(false);
       saveCachedDeals(rows);
