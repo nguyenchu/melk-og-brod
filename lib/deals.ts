@@ -1,6 +1,19 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireSupabase } from './supabase';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
+
+const DEALS_CACHE_KEY = 'deals.cache.v1';
+
+export async function saveCachedDeals(deals: MenyProduct[]) {
+  await AsyncStorage.setItem(DEALS_CACHE_KEY, JSON.stringify(deals));
+}
+
+export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
+  const raw = await AsyncStorage.getItem(DEALS_CACHE_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw) as MenyProduct[];
+}
 
 const MAX_DEAL_AGE_HOURS = 24;
 const SEARCH_SYNONYMS: Record<string, string[]> = {

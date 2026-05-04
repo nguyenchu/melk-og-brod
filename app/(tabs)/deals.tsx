@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
-import { fetchTopDeals } from '@/lib/deals';
+import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
+import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
 import type { MenyProduct } from '@/lib/types';
 
@@ -51,6 +52,7 @@ export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const { items: cartItems } = useCart();
 
   const cartByEan = useMemo(() => {
@@ -63,12 +65,25 @@ export default function DealsScreen() {
   }, [cartItems]);
 
   const load = useCallback(async () => {
+    if (!hasSupabaseConfig()) {
+      setError('Tilbud er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
+      return;
+    }
     try {
       setError(null);
       const rows = await fetchTopDeals(0.1, 100);
       setDeals(rows);
-    } catch (e: any) {
-      setError(e.message ?? 'Kunne ikke hente tilbud');
+      setFromCache(false);
+      saveCachedDeals(rows);
+    } catch {
+      const cached = await loadCachedDeals();
+      if (cached && cached.length > 0) {
+        setDeals(cached);
+        setFromCache(true);
+        setError(null);
+      } else {
+        setError('Ingen nettilgang og ingen lagrede tilbud.');
+      }
     }
   }, []);
 
@@ -106,7 +121,9 @@ export default function DealsScreen() {
         ) : (
           <View style={styles.headerBlock}>
             <Text style={styles.headerSub}>Kampanjer og prisfall fra Meny</Text>
-            {latestComputedAt ? (
+            {fromCache ? (
+              <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
+            ) : latestComputedAt ? (
               <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
             ) : null}
           </View>
@@ -272,6 +289,7 @@ const styles = StyleSheet.create({
   headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
   headerSub: { color: '#666' },
   headerMeta: { fontSize: 12, color: '#888' },
+  cacheNotice: { fontSize: 12, color: '#A85C00' },
   errorBox: { backgroundColor: '#FFE5E5', padding: 12, borderRadius: 8, marginBottom: 8 },
   errorText: { color: '#C00' },
   empty: { color: '#999', textAlign: 'center', padding: 32 },

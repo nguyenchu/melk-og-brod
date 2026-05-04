@@ -22,6 +22,7 @@ import {
 } from '@/lib/cart';
 import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { searchProducts } from '@/lib/deals';
+import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
 
@@ -48,6 +49,10 @@ export default function CartScreen() {
   const runSearch = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
       setResults([]);
+      setSearching(false);
+      return;
+    }
+    if (!hasSupabaseConfig()) {
       setSearching(false);
       return;
     }
