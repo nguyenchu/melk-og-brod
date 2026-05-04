@@ -4,7 +4,6 @@ import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import 'react-native-reanimated';
 import { StyleSheet, Text, View } from 'react-native';
-
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 class ErrorBoundary extends React.Component<

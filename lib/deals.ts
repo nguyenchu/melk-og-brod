@@ -15,7 +15,7 @@ export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
   return JSON.parse(raw) as MenyProduct[];
 }
 
-const MAX_DEAL_AGE_HOURS = 24;
+const MAX_DEAL_AGE_HOURS = 36;
 const SEARCH_SYNONYMS: Record<string, string[]> = {
   avocado: ['avokado'],
   avokado: ['avocado'],

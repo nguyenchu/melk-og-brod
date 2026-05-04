@@ -13,7 +13,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import {
   addToCart,
   clearChecked,
@@ -226,7 +225,7 @@ export default function CartScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <SwipeableCartRow
+            <CartRow
               item={item}
               onToggle={toggleChecked}
               onRemove={removeFromCart}
@@ -530,32 +529,6 @@ const CartRow = memo(function CartRow({
   );
 });
 
-function SwipeableCartRow({
-  item,
-  onToggle,
-  onRemove,
-  onChangeQuantity,
-}: {
-  item: CartItem;
-  onToggle: (id: string) => void;
-  onRemove: (id: string) => void;
-  onChangeQuantity: (id: string, quantity: number) => void;
-}) {
-  return (
-    <ReanimatedSwipeable
-      friction={2}
-      rightThreshold={40}
-      renderRightActions={() => (
-        <Pressable style={styles.swipeDelete} onPress={() => onRemove(item.id)}>
-          <Ionicons name="trash-outline" size={22} color="#fff" />
-        </Pressable>
-      )}
-    >
-      <CartRow item={item} onToggle={onToggle} onRemove={onRemove} onChangeQuantity={onChangeQuantity} />
-    </ReanimatedSwipeable>
-  );
-}
-
 function CampaignBadge({ text }: { text: string }) {
   const kind = getCampaignKind(text);
   const badgeStyle = [
@@ -807,14 +780,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   clearLink: { color: '#E10A0A', fontSize: 13 },
-  swipeDelete: {
-    backgroundColor: '#E10A0A',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 64,
-    borderRadius: 10,
-    marginBottom: 6,
-  },
   favSection: { marginBottom: 8 },
   favChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   favChip: {

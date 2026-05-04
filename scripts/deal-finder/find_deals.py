@@ -1205,10 +1205,6 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         if meny and not score:
             stats["missing_score"] += 1
 
-        if ean in dead_slug_eans:
-            stats["dead_slug_skipped"] += 1
-            continue
-
         live_data = live_cache_by_ean.get(ean)
         attempted_live_fetch = False
         wants_live_without_score = (
@@ -1233,6 +1229,10 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         if needs_live_data:
             if live_data is not None:
                 stats["live_cache_hits"] += 1
+            elif ean in dead_slug_eans:
+                stats["dead_slug_skipped"] += 1
+                needs_live_data = False
+                live_data = None
             else:
                 if MAX_TOTAL_LIVE_FETCHES > 0 and total_live_fetches >= MAX_TOTAL_LIVE_FETCHES:
                     needs_live_data = False

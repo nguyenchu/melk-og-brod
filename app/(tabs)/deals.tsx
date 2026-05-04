@@ -350,8 +350,9 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p.price).toFixed(1)}`)
     .join(' ');
 
-  const firstDate = points[0]?.date?.slice(5) ?? '';
-  const lastDate = points[points.length - 1]?.date?.slice(5) ?? '';
+  const fmtDate = (d: string) => { const [, m, day] = d.split('-'); return `${day}.${m}`; };
+  const firstDate = points[0]?.date ? fmtDate(points[0].date) : '';
+  const lastDate = points[points.length - 1]?.date ? fmtDate(points[points.length - 1].date) : '';
 
   return (
     <View style={styles.chartWrap}>
