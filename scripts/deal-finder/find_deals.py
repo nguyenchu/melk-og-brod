@@ -1124,20 +1124,6 @@ def push_to_supabase(rows):
     }
     url = f"{SUPABASE_URL}/rest/v1/meny_products"
 
-    delete_headers = {
-        **base_headers,
-        "Prefer": "return=minimal",
-    }
-    delete_response = requests.delete(
-        url,
-        headers=delete_headers,
-        params={"ean": "not.is.null"},
-        timeout=30,
-    )
-    if not delete_response.ok:
-        print(f"Supabase-slettefeil {delete_response.status_code}: {delete_response.text}")
-        delete_response.raise_for_status()
-
     if not rows:
         print("Ingen verifiserbare rader å pushe. Tabellen ble tømt.")
         return
