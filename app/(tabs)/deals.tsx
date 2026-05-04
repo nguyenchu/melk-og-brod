@@ -5,18 +5,21 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Line, Path, Svg, Circle as SvgCircle } from 'react-native-svg';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
 import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
-import type { MenyProduct } from '@/lib/types';
+import type { MenyProduct, PricePoint } from '@/lib/types';
 
 function formatComputedAt(value: string) {
   const date = new Date(value);
@@ -56,6 +59,7 @@ export default function DealsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [filter, setFilter] = useState<Filter>('alle');
+  const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
   const { items: cartItems } = useCart();
 
   const cartByEan = useMemo(() => {
@@ -124,6 +128,7 @@ export default function DealsScreen() {
   ];
 
   return (
+    <>
     <FlatList
       data={filteredDeals ?? []}
       keyExtractor={(d) => d.ean}
@@ -170,9 +175,14 @@ export default function DealsScreen() {
           item={item}
           cartItemId={item.ean ? cartByEan.get(item.ean)?.id ?? null : null}
           cartQuantity={item.ean ? cartByEan.get(item.ean)?.quantity ?? 0 : 0}
+          onPress={() => setSelectedDeal(item)}
         />
       )}
     />
+    {selectedDeal && (
+      <PriceHistoryModal deal={selectedDeal} onClose={() => setSelectedDeal(null)} />
+    )}
+    </>
   );
 }
 
@@ -180,10 +190,12 @@ function DealRow({
   item,
   cartItemId,
   cartQuantity,
+  onPress,
 }: {
   item: MenyProduct;
   cartItemId: string | null;
   cartQuantity: number;
+  onPress: () => void;
 }) {
   const inCart = cartQuantity > 0;
 
@@ -279,6 +291,101 @@ function DealRow({
             <Ionicons name="add" size={20} color="#fff" />
           </Pressable>
         )}
+        <Pressable onPress={onPress} hitSlop={8} style={styles.infoBtn}>
+          <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () => void }) {
+  const isMenyPromo = deal.price_source === 'meny';
+  const history = deal.price_history ?? [];
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose} />
+      <View style={styles.modalSheet}>
+        <View style={styles.modalHandle} />
+        <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <Text style={styles.modalTitle} numberOfLines={2}>{deal.name}</Text>
+          {deal.brand ? <Text style={styles.modalBrand}>{deal.brand}</Text> : null}
+          <View style={styles.modalPriceRow}>
+            <Text style={styles.modalPrice}>
+              {deal.current_price != null ? `${deal.current_price.toFixed(2)} kr` : '—'}
+            </Text>
+            <View style={[styles.dropBadge, !isMenyPromo && styles.dropBadgeMedian]}>
+              <Text style={[styles.dropText, !isMenyPromo && styles.dropTextMedian]}>
+                −{(deal.drop_pct ?? 0).toFixed(0)}%
+              </Text>
+            </View>
+          </View>
+          {history.length >= 2 ? (
+            <PriceChart points={history} currentPrice={deal.current_price} />
+          ) : (
+            <View style={styles.noChartBox}>
+              <Text style={styles.noChartText}>Ikke nok prishistorikk ennå</Text>
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPrice: number | null }) {
+  const W = 300;
+  const H = 120;
+  const PAD = { top: 12, bottom: 24, left: 36, right: 8 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const prices = points.map((p) => p.price);
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const range = maxP - minP || 1;
+
+  const toX = (_: unknown, i: number) => PAD.left + (i / (points.length - 1)) * chartW;
+  const toY = (price: number) => PAD.top + chartH - ((price - minP) / range) * chartH;
+
+  const pathD = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(null, i).toFixed(1)},${toY(p.price).toFixed(1)}`)
+    .join(' ');
+
+  const firstDate = points[0]?.date?.slice(5) ?? '';
+  const lastDate = points[points.length - 1]?.date?.slice(5) ?? '';
+
+  return (
+    <View style={styles.chartWrap}>
+      <Text style={styles.chartLabel}>Prishistorikk (siste {points.length} dager)</Text>
+      <Svg width={W} height={H}>
+        <Line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + chartH} stroke="#e0e0e0" strokeWidth={1} />
+        <Line x1={PAD.left} y1={PAD.top + chartH} x2={PAD.left + chartW} y2={PAD.top + chartH} stroke="#e0e0e0" strokeWidth={1} />
+        <Path d={pathD} stroke="#E10A0A" strokeWidth={2} fill="none" />
+        {points.map((p, i) => (
+          <SvgCircle key={i} cx={toX(null, i)} cy={toY(p.price)} r={3} fill="#E10A0A" />
+        ))}
+        {currentPrice != null && (
+          <Line
+            x1={PAD.left}
+            y1={toY(currentPrice)}
+            x2={PAD.left + chartW}
+            y2={toY(currentPrice)}
+            stroke="#2E8B57"
+            strokeWidth={1}
+            strokeDasharray="4,3"
+          />
+        )}
+      </Svg>
+      <View style={styles.chartAxisRow}>
+        <Text style={styles.chartAxisText}>{firstDate}</Text>
+        <Text style={styles.chartAxisText}>{lastDate}</Text>
+      </View>
+      <View style={styles.chartLegend}>
+        <View style={styles.chartLegendDot} />
+        <Text style={styles.chartLegendText}>Historisk pris</Text>
+        <View style={[styles.chartLegendDot, { backgroundColor: '#2E8B57' }]} />
+        <Text style={styles.chartLegendText}>Nå</Text>
       </View>
     </View>
   );
@@ -416,4 +523,36 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2E8B57',
   },
+  infoBtn: { marginTop: 4, padding: 2 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    maxHeight: '70%',
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: '#ddd',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  modalContent: { padding: 20, gap: 6 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#111' },
+  modalBrand: { fontSize: 13, color: '#888' },
+  modalPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  modalPrice: { fontSize: 22, fontWeight: '700', color: '#E10A0A' },
+  noChartBox: { padding: 24, alignItems: 'center' },
+  noChartText: { color: '#aaa', fontSize: 13 },
+  chartWrap: { marginTop: 12 },
+  chartLabel: { fontSize: 12, color: '#888', marginBottom: 6 },
+  chartAxisRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 36 },
+  chartAxisText: { fontSize: 10, color: '#aaa' },
+  chartLegend: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  chartLegendDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E10A0A' },
+  chartLegendText: { fontSize: 11, color: '#888' },
 });

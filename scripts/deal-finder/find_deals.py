@@ -1323,6 +1323,11 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             drop_pct = round((median_30d - float(current_price)) / median_30d * 100, 2)
             price_source = "median"
 
+        history_points = sorted(
+            [{"date": p["date"], "price": p["price"]} for p in meny_points(history) if p.get("date") and p.get("price") is not None],
+            key=lambda p: p["date"],
+        )[-30:]
+
         rows.append(
             {
                 "ean": ean,
@@ -1336,6 +1341,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 "price_source": price_source,
                 "drop_pct": drop_pct,
                 "campaign_text": campaign_text,
+                "price_history": history_points if history_points else None,
             }
         )
         if index % 100 == 0 or index == total_products:

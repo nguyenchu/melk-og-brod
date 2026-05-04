@@ -1,3 +1,5 @@
+export type PricePoint = { date: string; price: number };
+
 export type MenyProduct = {
   ean: string;
   name: string;
@@ -11,6 +13,7 @@ export type MenyProduct = {
   drop_pct: number | null;
   campaign_text: string | null;
   computed_at: string;
+  price_history: PricePoint[] | null;
 };
 
 export type CartItem = {
