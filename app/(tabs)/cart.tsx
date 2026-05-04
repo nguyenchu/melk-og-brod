@@ -24,7 +24,7 @@ import {
 } from '@/lib/cart';
 import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { searchProducts } from '@/lib/deals';
-import { isFavorite, toggleFavorite, useFavorites } from '@/lib/favorites';
+import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
@@ -94,17 +94,12 @@ export default function CartScreen() {
   }
 
   async function onShare() {
-    const activeItems = items.filter((i) => !i.checked);
-    if (activeItems.length === 0) return;
-    const lines = activeItems.map((i) => {
+    if (active.length === 0) return;
+    const lines = active.map((i) => {
       const qty = i.quantity > 1 ? ` (${i.quantity}x)` : '';
       const price = i.price != null ? ` – ${i.price.toFixed(2)} kr` : '';
       return `• ${i.name}${qty}${price}`;
     });
-    const total = items.reduce((sum, i) => {
-      if (i.price == null) return sum;
-      return sum + i.price * i.quantity;
-    }, 0);
     await Share.share({
       message: `Handleliste\n\n${lines.join('\n')}\n\nEstimert total: ${total.toFixed(2)} kr`,
     });
@@ -358,10 +353,8 @@ const SearchResultRow = memo(function SearchResultRow({
   onPick: (p: MenyProduct) => void;
 }) {
   const inCart = cartQuantity > 0;
-  const [starred, setStarred] = useState(false);
-  useEffect(() => {
-    isFavorite(item.ean).then(setStarred);
-  }, [item.ean]);
+  const favorites = useFavorites();
+  const starred = favorites.some((f) => f.ean === item.ean);
   const isMenyPromo = item.price_source === 'meny';
   const beforePrice = isMenyPromo ? item.original_price : item.median_30d;
   const beforePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
@@ -409,10 +402,7 @@ const SearchResultRow = memo(function SearchResultRow({
       {inCart ? <Text style={styles.resultCartCount}>{cartQuantity}</Text> : null}
       <Pressable
         hitSlop={8}
-        onPress={() => {
-          toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price });
-          setStarred((s) => !s);
-        }}>
+        onPress={() => toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price })}>
         <Ionicons name={starred ? 'star' : 'star-outline'} size={18} color={starred ? '#F5A623' : '#ccc'} />
       </Pressable>
     </View>

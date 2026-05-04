@@ -151,6 +151,8 @@ SEARCH_SUPPLEMENT_GROUPS = {
         "svineribbe",
         "pølse",
         "pølser",
+        "wienerpølser",
+        "grillpølser",
         "bacon",
         "karbonadedeig",
         "hamburger",

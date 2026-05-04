@@ -53,6 +53,12 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
 
 type Filter = 'alle' | 'kampanje' | 'prisfall';
 
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'alle', label: 'Alle' },
+  { key: 'kampanje', label: 'Kampanje' },
+  { key: 'prisfall', label: 'Prisfall' },
+];
+
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,12 +126,6 @@ export default function DealsScreen() {
       </View>
     );
   }
-
-  const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'alle', label: 'Alle' },
-    { key: 'kampanje', label: 'Kampanje' },
-    { key: 'prisfall', label: 'Prisfall' },
-  ];
 
   return (
     <>
@@ -323,9 +323,7 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
           {history.length >= 2 ? (
             <PriceChart points={history} currentPrice={deal.current_price} />
           ) : (
-            <View style={styles.noChartBox}>
-              <Text style={styles.noChartText}>Ikke nok prishistorikk ennå</Text>
-            </View>
+            <Text style={styles.noChartText}>Ikke nok prishistorikk ennå</Text>
           )}
         </ScrollView>
       </View>
@@ -345,11 +343,11 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
   const maxP = Math.max(...prices);
   const range = maxP - minP || 1;
 
-  const toX = (_: unknown, i: number) => PAD.left + (i / (points.length - 1)) * chartW;
+  const toX = (i: number) => PAD.left + (i / (points.length - 1)) * chartW;
   const toY = (price: number) => PAD.top + chartH - ((price - minP) / range) * chartH;
 
   const pathD = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(null, i).toFixed(1)},${toY(p.price).toFixed(1)}`)
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p.price).toFixed(1)}`)
     .join(' ');
 
   const firstDate = points[0]?.date?.slice(5) ?? '';
@@ -363,7 +361,7 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
         <Line x1={PAD.left} y1={PAD.top + chartH} x2={PAD.left + chartW} y2={PAD.top + chartH} stroke="#e0e0e0" strokeWidth={1} />
         <Path d={pathD} stroke="#E10A0A" strokeWidth={2} fill="none" />
         {points.map((p, i) => (
-          <SvgCircle key={i} cx={toX(null, i)} cy={toY(p.price)} r={3} fill="#E10A0A" />
+          <SvgCircle key={i} cx={toX(i)} cy={toY(p.price)} r={3} fill="#E10A0A" />
         ))}
         {currentPrice != null && (
           <Line
@@ -546,8 +544,7 @@ const styles = StyleSheet.create({
   modalBrand: { fontSize: 13, color: '#888' },
   modalPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   modalPrice: { fontSize: 22, fontWeight: '700', color: '#E10A0A' },
-  noChartBox: { padding: 24, alignItems: 'center' },
-  noChartText: { color: '#aaa', fontSize: 13 },
+  noChartText: { color: '#aaa', fontSize: 13, padding: 24, textAlign: 'center' },
   chartWrap: { marginTop: 12 },
   chartLabel: { fontSize: 12, color: '#888', marginBottom: 6 },
   chartAxisRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 36 },
