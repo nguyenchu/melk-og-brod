@@ -48,11 +48,14 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
   return !normalizedName.includes(normalizedBrand);
 }
 
+type Filter = 'alle' | 'kampanje' | 'prisfall';
+
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
+  const [filter, setFilter] = useState<Filter>('alle');
   const { items: cartItems } = useCart();
 
   const cartByEan = useMemo(() => {
@@ -91,6 +94,13 @@ export default function DealsScreen() {
     load();
   }, [load]);
 
+  const filteredDeals = useMemo(() => {
+    if (!deals) return null;
+    if (filter === 'kampanje') return deals.filter((d) => d.price_source === 'meny');
+    if (filter === 'prisfall') return deals.filter((d) => d.price_source !== 'meny');
+    return deals;
+  }, [deals, filter]);
+
   const latestComputedAt = deals?.[0]?.computed_at ?? null;
 
   async function onRefresh() {
@@ -99,7 +109,7 @@ export default function DealsScreen() {
     setRefreshing(false);
   }
 
-  if (deals === null && !error) {
+  if (filteredDeals === null && !error) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -107,9 +117,15 @@ export default function DealsScreen() {
     );
   }
 
+  const FILTERS: { key: Filter; label: string }[] = [
+    { key: 'alle', label: 'Alle' },
+    { key: 'kampanje', label: 'Kampanje' },
+    { key: 'prisfall', label: 'Prisfall' },
+  ];
+
   return (
     <FlatList
-      data={deals ?? []}
+      data={filteredDeals ?? []}
       keyExtractor={(d) => d.ean}
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -126,6 +142,19 @@ export default function DealsScreen() {
             ) : latestComputedAt ? (
               <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
             ) : null}
+            <View style={styles.filterRow}>
+              {FILTERS.map(({ key, label }) => (
+                <Pressable
+                  key={key}
+                  onPress={() => setFilter(key)}
+                  style={[styles.filterChip, filter === key && styles.filterChipActive]}
+                >
+                  <Text style={[styles.filterChipText, filter === key && styles.filterChipTextActive]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         )
       }
@@ -290,6 +319,16 @@ const styles = StyleSheet.create({
   headerSub: { color: '#666' },
   headerMeta: { fontSize: 12, color: '#888' },
   cacheNotice: { fontSize: 12, color: '#A85C00' },
+  filterRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#f0f0f3',
+  },
+  filterChipActive: { backgroundColor: '#E10A0A' },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  filterChipTextActive: { color: '#fff' },
   errorBox: { backgroundColor: '#FFE5E5', padding: 12, borderRadius: 8, marginBottom: 8 },
   errorText: { color: '#C00' },
   empty: { color: '#999', textAlign: 'center', padding: 32 },

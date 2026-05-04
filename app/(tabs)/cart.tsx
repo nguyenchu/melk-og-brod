@@ -7,11 +7,13 @@ import {
   FlatList,
   Keyboard,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import {
   addToCart,
   clearChecked,
@@ -22,6 +24,7 @@ import {
 } from '@/lib/cart';
 import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { searchProducts } from '@/lib/deals';
+import { isFavorite, toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
@@ -40,6 +43,7 @@ function getCartItemTotal(item: Pick<CartItem, 'price' | 'quantity' | 'campaign_
 
 export default function CartScreen() {
   const { items, loading } = useCart();
+  const favorites = useFavorites();
   const [query, setQuery] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const [results, setResults] = useState<MenyProduct[]>([]);
@@ -87,6 +91,23 @@ export default function CartScreen() {
     setQuery('');
     setResults([]);
     Keyboard.dismiss();
+  }
+
+  async function onShare() {
+    const activeItems = items.filter((i) => !i.checked);
+    if (activeItems.length === 0) return;
+    const lines = activeItems.map((i) => {
+      const qty = i.quantity > 1 ? ` (${i.quantity}x)` : '';
+      const price = i.price != null ? ` – ${i.price.toFixed(2)} kr` : '';
+      return `• ${i.name}${qty}${price}`;
+    });
+    const total = items.reduce((sum, i) => {
+      if (i.price == null) return sum;
+      return sum + i.price * i.quantity;
+    }, 0);
+    await Share.share({
+      message: `Handleliste\n\n${lines.join('\n')}\n\nEstimert total: ${total.toFixed(2)} kr`,
+    });
   }
 
   async function onAddManual() {
@@ -144,11 +165,15 @@ export default function CartScreen() {
           onSubmitEditing={onAddManual}
           autoCorrect={false}
         />
-        {query.length > 0 && (
+        {query.length > 0 ? (
           <Pressable onPress={() => setQuery('')} hitSlop={10}>
             <Ionicons name="close-circle" size={18} color="#bbb" />
           </Pressable>
-        )}
+        ) : active.length > 0 ? (
+          <Pressable onPress={onShare} hitSlop={10}>
+            <Ionicons name="share-outline" size={20} color="#888" />
+          </Pressable>
+        ) : null}
       </View>
 
       {showSearchPanel ? (
@@ -172,11 +197,30 @@ export default function CartScreen() {
             { paddingBottom: showStickyTotal ? 108 : 32 },
           ]}
           ListHeaderComponent={
-            active.length === 0 ? null : (
-              <Text style={styles.sectionTitle}>
-                Å handle ({active.reduce((sum, item) => sum + item.quantity, 0)})
-              </Text>
-            )
+            <>
+              {favorites.length > 0 && (
+                <View style={styles.favSection}>
+                  <Text style={styles.sectionTitle}>Favoritter</Text>
+                  <View style={styles.favChips}>
+                    {favorites.map((fav) => (
+                      <Pressable
+                        key={fav.ean}
+                        style={styles.favChip}
+                        onPress={() => addToCart({ name: fav.name, ean: fav.ean, image_url: fav.image_url, price: fav.price })}
+                      >
+                        <Ionicons name="add" size={14} color="#E10A0A" />
+                        <Text style={styles.favChipText} numberOfLines={1}>{fav.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+              {active.length > 0 && (
+                <Text style={styles.sectionTitle}>
+                  Å handle ({active.reduce((sum, item) => sum + item.quantity, 0)})
+                </Text>
+              )}
+            </>
           }
           ListEmptyComponent={
             <View style={styles.emptyBox}>
@@ -187,7 +231,7 @@ export default function CartScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <CartRow
+            <SwipeableCartRow
               item={item}
               onToggle={toggleChecked}
               onRemove={removeFromCart}
@@ -207,7 +251,7 @@ export default function CartScreen() {
                     </Pressable>
                   </View>
                   {done.map((i) => (
-                    <CartRow
+                    <SwipeableCartRow
                       key={i.id}
                       item={i}
                       onToggle={toggleChecked}
@@ -314,6 +358,10 @@ const SearchResultRow = memo(function SearchResultRow({
   onPick: (p: MenyProduct) => void;
 }) {
   const inCart = cartQuantity > 0;
+  const [starred, setStarred] = useState(false);
+  useEffect(() => {
+    isFavorite(item.ean).then(setStarred);
+  }, [item.ean]);
   const isMenyPromo = item.price_source === 'meny';
   const beforePrice = isMenyPromo ? item.original_price : item.median_30d;
   const beforePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
@@ -359,6 +407,14 @@ const SearchResultRow = memo(function SearchResultRow({
         <Ionicons name={inCart ? 'checkmark' : 'add'} size={22} color={inCart ? '#fff' : '#E10A0A'} />
       </Pressable>
       {inCart ? <Text style={styles.resultCartCount}>{cartQuantity}</Text> : null}
+      <Pressable
+        hitSlop={8}
+        onPress={() => {
+          toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price });
+          setStarred((s) => !s);
+        }}>
+        <Ionicons name={starred ? 'star' : 'star-outline'} size={18} color={starred ? '#F5A623' : '#ccc'} />
+      </Pressable>
     </View>
   );
 });
@@ -483,6 +539,32 @@ const CartRow = memo(function CartRow({
     </View>
   );
 });
+
+function SwipeableCartRow({
+  item,
+  onToggle,
+  onRemove,
+  onChangeQuantity,
+}: {
+  item: CartItem;
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+  onChangeQuantity: (id: string, quantity: number) => void;
+}) {
+  return (
+    <ReanimatedSwipeable
+      friction={2}
+      rightThreshold={40}
+      renderRightActions={() => (
+        <Pressable style={styles.swipeDelete} onPress={() => onRemove(item.id)}>
+          <Ionicons name="trash-outline" size={22} color="#fff" />
+        </Pressable>
+      )}
+    >
+      <CartRow item={item} onToggle={onToggle} onRemove={onRemove} onChangeQuantity={onChangeQuantity} />
+    </ReanimatedSwipeable>
+  );
+}
 
 function CampaignBadge({ text }: { text: string }) {
   const kind = getCampaignKind(text);
@@ -735,4 +817,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   clearLink: { color: '#E10A0A', fontSize: 13 },
+  swipeDelete: {
+    backgroundColor: '#E10A0A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 64,
+    borderRadius: 10,
+    marginBottom: 6,
+  },
+  favSection: { marginBottom: 8 },
+  favChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  favChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e2e6',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  favChipText: { fontSize: 13, color: '#333', maxWidth: 140 },
 });
