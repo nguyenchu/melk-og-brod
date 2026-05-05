@@ -1112,6 +1112,24 @@ def fetch_live_meny_price(session, url):
         return None
 
 
+def delete_dead_slugs_from_supabase(eans):
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+        return
+    if not eans:
+        return
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    }
+    ean_list = ",".join(eans)
+    url = f"{SUPABASE_URL}/rest/v1/meny_products?ean=in.({ean_list})"
+    r = requests.delete(url, headers=headers, timeout=30)
+    if r.ok:
+        print(f"Slettet {len(eans)} dead-slug-rad(er) fra Supabase.")
+    else:
+        print(f"Feil ved sletting av dead slugs: {r.status_code}: {r.text}")
+
+
 def push_to_supabase(rows):
     if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
         print("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY ikke satt — hopper over push.")
@@ -1417,6 +1435,9 @@ def main():
     persist_dead_slugs(conn, dead_slug_records)
     persist_local_price_history(conn, rows, today)
     conn.close()
+
+    all_dead_eans = {ean for ean, _, _ in dead_slug_records} | dead_slug_eans
+    delete_dead_slugs_from_supabase(all_dead_eans)
 
     print("\nDebug:")
     print(f"  Produkter i katalogsync: {stats['total_products']}")
