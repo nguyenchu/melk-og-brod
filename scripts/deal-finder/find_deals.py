@@ -1300,6 +1300,11 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         current_price = live_price if live_price is not None else base_price
         if current_price is None:
             continue
+        price_f = float(current_price)
+        if not (0.01 <= price_f <= 10_000):
+            print(f"  hopper over {ean} ({product.get('name', '')!r}): urealistisk pris {current_price}")
+            stats["rows_skipped_bad_price"] = stats.get("rows_skipped_bad_price", 0) + 1
+            continue
 
         campaign_text = merge_promo_labels(
             (live_data or {}).get("campaign_text"),
