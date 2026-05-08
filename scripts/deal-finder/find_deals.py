@@ -1225,13 +1225,22 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
 
         live_data = live_cache_by_ean.get(ean)
         attempted_live_fetch = False
+        is_promo_candidate = bool(product.get("uses_promotion") or product_campaign_text)
         wants_live_without_score = (
             not score
             and not product_campaign_text
             and no_score_live_fetches < MAX_NO_SCORE_LIVE_FETCHES
             and should_fetch_live_without_score(product)
         )
-        needs_live_data = bool(score) or wants_live_without_score
+        # Verify deal candidates with no price history so we catch dead Meny slugs
+        # (e.g. seasonal promos like Påskeskum that vanish after the campaign ends).
+        wants_live_for_promo = (
+            not score
+            and is_meny_url
+            and is_promo_candidate
+            and no_score_live_fetches < MAX_NO_SCORE_LIVE_FETCHES
+        )
+        needs_live_data = bool(score) or wants_live_without_score or wants_live_for_promo
         if live_data is not None and not product_campaign_text:
             cached_campaign = merge_promo_labels(
                 live_data.get("campaign_text"),
