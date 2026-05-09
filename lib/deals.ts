@@ -342,6 +342,26 @@ function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
   return [...seen.values()];
 }
 
+export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>> {
+  const unique = [...new Set(eans.filter(Boolean))];
+  if (unique.length === 0) return new Set();
+  const supabase = requireSupabase();
+  const present = new Set<string>();
+  const BATCH = 200;
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const chunk = unique.slice(i, i + BATCH);
+    const { data, error } = await supabase
+      .from('meny_products')
+      .select('ean')
+      .in('ean', chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.ean) present.add(row.ean);
+    }
+  }
+  return new Set(unique.filter((ean) => !present.has(ean)));
+}
+
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
   const supabase = requireSupabase();
   const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();

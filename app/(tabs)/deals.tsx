@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Line, Path, Svg, Circle as SvgCircle } from 'react-native-svg';
+import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
@@ -119,6 +119,23 @@ export default function DealsScreen() {
     setRefreshing(false);
   }
 
+  const handleSelect = useCallback((item: MenyProduct) => setSelectedDeal(item), []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: MenyProduct }) => {
+      const cart = item.ean ? cartByEan.get(item.ean) : undefined;
+      return (
+        <DealRow
+          item={item}
+          cartItemId={cart?.id ?? null}
+          cartQuantity={cart?.quantity ?? 0}
+          onSelect={handleSelect}
+        />
+      );
+    },
+    [cartByEan, handleSelect],
+  );
+
   if (filteredDeals === null && !error) {
     return (
       <View style={styles.center}>
@@ -134,34 +151,37 @@ export default function DealsScreen() {
       keyExtractor={(d) => d.ean}
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      stickyHeaderIndices={[0]}
       ListHeaderComponent={
-        error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : (
-          <View style={styles.headerBlock}>
-            <Text style={styles.headerSub}>Kampanjer og prisfall fra Meny</Text>
-            {fromCache ? (
-              <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
-            ) : latestComputedAt ? (
-              <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
-            ) : null}
-            <View style={styles.filterRow}>
-              {FILTERS.map(({ key, label }) => (
-                <Pressable
-                  key={key}
-                  onPress={() => setFilter(key)}
-                  style={[styles.filterChip, filter === key && styles.filterChipActive]}
-                >
-                  <Text style={[styles.filterChipText, filter === key && styles.filterChipTextActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
+        <View style={styles.stickyHeader}>
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
+          ) : (
+            <View style={styles.headerBlock}>
+              <Text style={styles.headerSub}>Kampanjer og prisfall fra Meny</Text>
+              {fromCache ? (
+                <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
+              ) : latestComputedAt ? (
+                <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+              ) : null}
+            </View>
+          )}
+          <View style={styles.filterRow}>
+            {FILTERS.map(({ key, label }) => (
+              <Pressable
+                key={key}
+                onPress={() => setFilter(key)}
+                style={[styles.filterChip, filter === key && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, filter === key && styles.filterChipTextActive]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
           </View>
-        )
+        </View>
       }
       ListEmptyComponent={
         !error ? (
@@ -170,14 +190,7 @@ export default function DealsScreen() {
           </Text>
         ) : null
       }
-      renderItem={({ item }) => (
-        <DealRow
-          item={item}
-          cartItemId={item.ean ? cartByEan.get(item.ean)?.id ?? null : null}
-          cartQuantity={item.ean ? cartByEan.get(item.ean)?.quantity ?? 0 : 0}
-          onPress={() => setSelectedDeal(item)}
-        />
-      )}
+      renderItem={renderItem}
     />
     {selectedDeal && (
       <PriceHistoryModal deal={selectedDeal} onClose={() => setSelectedDeal(null)} />
@@ -186,16 +199,16 @@ export default function DealsScreen() {
   );
 }
 
-function DealRow({
+const DealRow = memo(function DealRow({
   item,
   cartItemId,
   cartQuantity,
-  onPress,
+  onSelect,
 }: {
   item: MenyProduct;
   cartItemId: string | null;
   cartQuantity: number;
-  onPress: () => void;
+  onSelect: (item: MenyProduct) => void;
 }) {
   const inCart = cartQuantity > 0;
 
@@ -291,13 +304,13 @@ function DealRow({
             <Ionicons name="add" size={20} color="#fff" />
           </Pressable>
         )}
-        <Pressable onPress={onPress} hitSlop={8} style={styles.infoBtn}>
+        <Pressable onPress={() => onSelect(item)} hitSlop={8} style={styles.infoBtn}>
           <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
         </Pressable>
       </View>
     </View>
   );
-}
+});
 
 function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () => void }) {
   const isMenyPromo = deal.price_source === 'meny';
@@ -331,19 +344,38 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
   );
 }
 
+function niceTicks(min: number, max: number, count = 4): number[] {
+  if (max - min < 1e-9) {
+    const v = Math.round(min * 10) / 10;
+    return [v];
+  }
+  const range = max - min;
+  const rough = range / (count - 1);
+  const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / pow;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * pow;
+  const start = Math.ceil(min / step) * step;
+  const ticks: number[] = [];
+  for (let v = start; v <= max + 1e-9; v += step) ticks.push(Math.round(v * 100) / 100);
+  return ticks;
+}
+
 function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPrice: number | null }) {
   const W = 300;
-  const H = 120;
-  const PAD = { top: 12, bottom: 24, left: 36, right: 8 };
+  const H = 150;
+  const PAD = { top: 12, bottom: 28, left: 42, right: 10 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
   const prices = points.map((p) => p.price);
-  const minP = Math.min(...prices);
-  const maxP = Math.max(...prices);
+  const rawMin = Math.min(...prices);
+  const rawMax = Math.max(...prices);
+  const padding = (rawMax - rawMin) * 0.12 || rawMax * 0.05 || 1;
+  const minP = Math.max(0, rawMin - padding);
+  const maxP = rawMax + padding;
   const range = maxP - minP || 1;
 
-  const toX = (i: number) => PAD.left + (i / (points.length - 1)) * chartW;
+  const toX = (i: number) => PAD.left + (i / Math.max(1, points.length - 1)) * chartW;
   const toY = (price: number) => PAD.top + chartH - ((price - minP) / range) * chartH;
 
   const pathD = points
@@ -351,38 +383,90 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
     .join(' ');
 
   const fmtDate = (d: string) => { const [, m, day] = d.split('-'); return `${day}.${m}`; };
-  const firstDate = points[0]?.date ? fmtDate(points[0].date) : '';
-  const lastDate = points[points.length - 1]?.date ? fmtDate(points[points.length - 1].date) : '';
+  const dateAt = (i: number) => (points[i]?.date ? fmtDate(points[i].date) : '');
+  const yTicks = niceTicks(minP, maxP, 4);
+  const xTickIdxs =
+    points.length <= 2
+      ? [0, points.length - 1]
+      : points.length <= 5
+        ? [0, Math.floor((points.length - 1) / 2), points.length - 1]
+        : [0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1];
 
   return (
     <View style={styles.chartWrap}>
       <Text style={styles.chartLabel}>Prishistorikk (siste {points.length} dager)</Text>
       <Svg width={W} height={H}>
-        <Line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + chartH} stroke="#e0e0e0" strokeWidth={1} />
-        <Line x1={PAD.left} y1={PAD.top + chartH} x2={PAD.left + chartW} y2={PAD.top + chartH} stroke="#e0e0e0" strokeWidth={1} />
+        {yTicks.map((tick) => {
+          const y = toY(tick);
+          return (
+            <Line
+              key={`grid-${tick}`}
+              x1={PAD.left}
+              y1={y}
+              x2={PAD.left + chartW}
+              y2={y}
+              stroke="#f0f0f3"
+              strokeWidth={1}
+            />
+          );
+        })}
+        <Line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + chartH} stroke="#d0d0d4" strokeWidth={1} />
+        <Line x1={PAD.left} y1={PAD.top + chartH} x2={PAD.left + chartW} y2={PAD.top + chartH} stroke="#d0d0d4" strokeWidth={1} />
+        {yTicks.map((tick) => (
+          <SvgText
+            key={`yl-${tick}`}
+            x={PAD.left - 6}
+            y={toY(tick) + 3}
+            fontSize="9"
+            fill="#888"
+            textAnchor="end"
+          >
+            {tick.toFixed(tick < 10 ? 1 : 0)}
+          </SvgText>
+        ))}
+        {xTickIdxs.map((i) => (
+          <SvgText
+            key={`xl-${i}`}
+            x={toX(i)}
+            y={PAD.top + chartH + 14}
+            fontSize="9"
+            fill="#888"
+            textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
+          >
+            {dateAt(i)}
+          </SvgText>
+        ))}
         <Path d={pathD} stroke="#E10A0A" strokeWidth={2} fill="none" />
         {points.map((p, i) => (
-          <SvgCircle key={i} cx={toX(i)} cy={toY(p.price)} r={3} fill="#E10A0A" />
+          <SvgCircle key={i} cx={toX(i)} cy={toY(p.price)} r={2.5} fill="#E10A0A" />
         ))}
         {currentPrice != null && (
-          <Line
-            x1={PAD.left}
-            y1={toY(currentPrice)}
-            x2={PAD.left + chartW}
-            y2={toY(currentPrice)}
-            stroke="#2E8B57"
-            strokeWidth={1}
-            strokeDasharray="4,3"
-          />
+          <>
+            <Line
+              x1={PAD.left}
+              y1={toY(currentPrice)}
+              x2={PAD.left + chartW}
+              y2={toY(currentPrice)}
+              stroke="#2E8B57"
+              strokeWidth={1}
+              strokeDasharray="4,3"
+            />
+            <SvgText
+              x={PAD.left + chartW}
+              y={toY(currentPrice) - 4}
+              fontSize="9"
+              fill="#2E8B57"
+              fontWeight="700"
+              textAnchor="end"
+            >
+              nå {currentPrice.toFixed(currentPrice < 10 ? 1 : 0)}
+            </SvgText>
+          </>
         )}
       </Svg>
-      <View style={styles.chartAxisRow}>
-        <Text style={styles.chartAxisText}>{firstDate}</Text>
-        <Text style={styles.chartAxisText}>{lastDate}</Text>
-      </View>
       <View style={styles.chartLegend}>
         <View style={styles.chartLegendDot} />
-        <Text style={styles.chartLegendText}>Historisk pris</Text>
+        <Text style={styles.chartLegendText}>Historisk pris (kr)</Text>
         <View style={[styles.chartLegendDot, { backgroundColor: '#2E8B57' }]} />
         <Text style={styles.chartLegendText}>Nå</Text>
       </View>
@@ -421,6 +505,7 @@ function CampaignBadge({ text }: { text: string }) {
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list: { padding: 12, gap: 8 },
+  stickyHeader: { backgroundColor: '#f5f5f7', paddingBottom: 8, marginHorizontal: -12, paddingHorizontal: 12 },
   headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
   headerSub: { color: '#666' },
   headerMeta: { fontSize: 12, color: '#888' },
@@ -548,8 +633,6 @@ const styles = StyleSheet.create({
   noChartText: { color: '#aaa', fontSize: 13, padding: 24, textAlign: 'center' },
   chartWrap: { marginTop: 12 },
   chartLabel: { fontSize: 12, color: '#888', marginBottom: 6 },
-  chartAxisRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 36 },
-  chartAxisText: { fontSize: 10, color: '#aaa' },
   chartLegend: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   chartLegendDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E10A0A' },
   chartLegendText: { fontSize: 11, color: '#888' },

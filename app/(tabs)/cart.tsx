@@ -22,7 +22,7 @@ import {
   useCart,
 } from '@/lib/cart';
 import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
-import { searchProducts } from '@/lib/deals';
+import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatUnitPriceLabel } from '@/lib/pricing';
@@ -128,6 +128,27 @@ export default function CartScreen() {
       done: items.filter((i) => i.checked),
     };
   }, [items]);
+
+  const [discontinuedEans, setDiscontinuedEans] = useState<Set<string>>(new Set());
+  const cartEansKey = useMemo(
+    () => items.map((i) => i.ean).filter((e): e is string => !!e).sort().join(','),
+    [items],
+  );
+  useEffect(() => {
+    if (!hasSupabaseConfig() || cartEansKey.length === 0) {
+      setDiscontinuedEans(new Set());
+      return;
+    }
+    let cancelled = false;
+    fetchDiscontinuedEans(cartEansKey.split(','))
+      .then((set: Set<string>) => {
+        if (!cancelled) setDiscontinuedEans(set);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [cartEansKey]);
   const activeCartByEan = useMemo(() => {
     const map = new Map<string, number>();
     for (const item of active) {
@@ -249,6 +270,7 @@ export default function CartScreen() {
           renderItem={({ item }) => (
             <CartRow
               item={item}
+              discontinued={!!item.ean && discontinuedEans.has(item.ean)}
               onToggle={toggleChecked}
               onRemove={removeFromCart}
               onChangeQuantity={updateQuantity}
@@ -270,6 +292,7 @@ export default function CartScreen() {
                     <CartRow
                       key={i.id}
                       item={i}
+                      discontinued={!!i.ean && discontinuedEans.has(i.ean)}
                       onToggle={toggleChecked}
                       onRemove={removeFromCart}
                       onChangeQuantity={updateQuantity}
@@ -451,11 +474,13 @@ function StickyTotal({ total, searching }: { total: number; searching: boolean }
 
 const CartRow = memo(function CartRow({
   item,
+  discontinued,
   onToggle,
   onRemove,
   onChangeQuantity,
 }: {
   item: CartItem;
+  discontinued: boolean;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onChangeQuantity: (id: string, quantity: number) => void;
@@ -479,7 +504,7 @@ const CartRow = memo(function CartRow({
   }
 
   return (
-    <View style={styles.cartRow}>
+    <View style={[styles.cartRow, discontinued && styles.cartRowDiscontinued]}>
       <Pressable onPress={() => onToggle(item.id)} hitSlop={8}>
         <Ionicons
           name={item.checked ? 'checkbox' : 'square-outline'}
@@ -496,6 +521,12 @@ const CartRow = memo(function CartRow({
       )}
       <View style={{ flex: 1 }}>
         <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>{item.name}</Text>
+        {discontinued ? (
+          <View style={styles.discontinuedBadge}>
+            <Ionicons name="alert-circle" size={12} color="#fff" />
+            <Text style={styles.discontinuedBadgeText}>Ikke i salg</Text>
+          </View>
+        ) : null}
         <View style={styles.cartMetaRow}>
           <View style={styles.cartPriceBlock}>
             <View style={styles.cartPriceRow}>
@@ -726,6 +757,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 8,
     borderRadius: 10,
+  },
+  cartRowDiscontinued: {
+    backgroundColor: '#FFF6F0',
+    borderWidth: 1,
+    borderColor: '#F2C2A8',
+  },
+  discontinuedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#C44A1A',
+    marginTop: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  discontinuedBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
   },
   cartThumb: {
     width: 32,
