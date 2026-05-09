@@ -16,6 +16,7 @@ import re
 import sqlite3
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from urllib.parse import urlsplit, urlunsplit
@@ -1121,13 +1122,60 @@ def delete_dead_slugs_from_supabase(eans):
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
     }
-    ean_list = ",".join(eans)
-    url = f"{SUPABASE_URL}/rest/v1/meny_products?ean=in.({ean_list})"
-    r = requests.delete(url, headers=headers, timeout=30)
-    if r.ok:
-        print(f"Slettet {len(eans)} dead-slug-rad(er) fra Supabase.")
-    else:
-        print(f"Feil ved sletting av dead slugs: {r.status_code}: {r.text}")
+    ean_list = list(eans)
+    deleted = 0
+    BATCH = 200
+    for i in range(0, len(ean_list), BATCH):
+        chunk = ean_list[i : i + BATCH]
+        url = f"{SUPABASE_URL}/rest/v1/meny_products?ean=in.({','.join(chunk)})"
+        r = requests.delete(url, headers=headers, timeout=30)
+        if r.ok:
+            deleted += len(chunk)
+        else:
+            print(f"Feil ved sletting av dead slugs (batch {i}-{i+len(chunk)}): {r.status_code}: {r.text}")
+            return
+    print(f"Slettet {deleted} dead-slug-rad(er) fra Supabase.")
+
+
+def prune_stale_rows_from_supabase(keep_eans):
+    """Delete Supabase rows whose EAN is not in keep_eans (no longer in fresh push)."""
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+        return
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    }
+    existing = []
+    offset = 0
+    PAGE = 1000
+    while True:
+        url = f"{SUPABASE_URL}/rest/v1/meny_products?select=ean&offset={offset}&limit={PAGE}"
+        r = requests.get(url, headers=headers, timeout=30)
+        if not r.ok:
+            print(f"Klarte ikke hente eksisterende EAN-er fra Supabase: {r.status_code}: {r.text}")
+            return
+        page = r.json()
+        existing.extend(row["ean"] for row in page if row.get("ean"))
+        if len(page) < PAGE:
+            break
+        offset += PAGE
+    keep_set = set(keep_eans)
+    stale = [e for e in existing if e not in keep_set]
+    if not stale:
+        print("Ingen stale Supabase-rader å rydde.")
+        return
+    deleted = 0
+    BATCH = 200
+    for i in range(0, len(stale), BATCH):
+        chunk = stale[i : i + BATCH]
+        url = f"{SUPABASE_URL}/rest/v1/meny_products?ean=in.({','.join(chunk)})"
+        r = requests.delete(url, headers=headers, timeout=30)
+        if r.ok:
+            deleted += len(chunk)
+        else:
+            print(f"Feil ved pruning av stale rader (batch {i}-{i+len(chunk)}): {r.status_code}: {r.text}")
+            return
+    print(f"Ryddet {deleted} stale rad(er) fra Supabase (EAN ikke lenger i katalog/dealsett).")
 
 
 def push_to_supabase(rows):
@@ -1225,6 +1273,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
 
         live_data = live_cache_by_ean.get(ean)
         attempted_live_fetch = False
+        raw_live = None
         is_promo_candidate = bool(product.get("uses_promotion") or product_campaign_text)
         wants_live_without_score = (
             not score
@@ -1258,8 +1307,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 stats["live_cache_hits"] += 1
             elif ean in dead_slug_eans:
                 stats["dead_slug_skipped"] += 1
-                needs_live_data = False
-                live_data = None
+                continue
             else:
                 if MAX_TOTAL_LIVE_FETCHES > 0 and total_live_fetches >= MAX_TOTAL_LIVE_FETCHES:
                     needs_live_data = False
@@ -1360,6 +1408,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
                 "drop_pct": drop_pct,
                 "campaign_text": campaign_text,
                 "price_history": history_points if history_points else None,
+                "computed_at": datetime.now(timezone.utc).isoformat(),
             }
         )
         if index % 100 == 0 or index == total_products:
@@ -1451,7 +1500,6 @@ def main():
     conn.close()
 
     all_dead_eans = {ean for ean, _, _ in dead_slug_records} | dead_slug_eans
-    delete_dead_slugs_from_supabase(all_dead_eans)
 
     print("\nDebug:")
     print(f"  Produkter i katalogsync: {stats['total_products']}")
@@ -1510,6 +1558,8 @@ def main():
         print("  (ingen — utvid sample, eller sjekk API-respons)")
 
     push_to_supabase(rows)
+    delete_dead_slugs_from_supabase(all_dead_eans)
+    prune_stale_rows_from_supabase({r["ean"] for r in rows})
 
 
 if __name__ == "__main__":
