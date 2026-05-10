@@ -1271,10 +1271,12 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         if meny and not score:
             stats["missing_score"] += 1
 
-        live_data = live_cache_by_ean.get(ean)
+        is_promo_candidate = bool(product.get("uses_promotion") or product_campaign_text)
+        # Promo products need a fresh live fetch every run: the live cache may hold a stale
+        # sale price from when the campaign was active, causing fake deals after the sale ends.
+        live_data = None if is_promo_candidate else live_cache_by_ean.get(ean)
         attempted_live_fetch = False
         raw_live = None
-        is_promo_candidate = bool(product.get("uses_promotion") or product_campaign_text)
         wants_live_without_score = (
             not score
             and not product_campaign_text
@@ -1290,7 +1292,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             and no_score_live_fetches < MAX_NO_SCORE_LIVE_FETCHES
         )
         needs_live_data = bool(score) or wants_live_without_score or wants_live_for_promo
-        if live_data is not None and not product_campaign_text:
+        if live_data is not None:
             cached_campaign = merge_promo_labels(
                 live_data.get("campaign_text"),
                 live_data.get("fallback_campaign_text"),
@@ -1354,6 +1356,13 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             stats["stale_meny_rows_skipped"] += 1
             continue
 
+        # Promo candidates without live verification can't be trusted as deals.
+        # Keep the product (so it stays searchable / cart-addable), but strip the
+        # catalog's potentially stale promo signals so it doesn't appear as a fake deal.
+        if is_promo_candidate and live_data is None:
+            stats["unverified_promo_skipped"] = stats.get("unverified_promo_skipped", 0) + 1
+            product_campaign_text = None
+
         current_price = live_price if live_price is not None else base_price
         if current_price is None:
             continue
@@ -1363,14 +1372,21 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             stats["rows_skipped_bad_price"] = stats.get("rows_skipped_bad_price", 0) + 1
             continue
 
-        campaign_text = merge_promo_labels(
-            (live_data or {}).get("campaign_text"),
-            (live_data or {}).get("fallback_campaign_text"),
-            product_campaign_text,
-        )
+        # Trust the live page as source of truth for the campaign label. Falling back to
+        # product_campaign_text from the (possibly stale) catalog re-introduces fake deals
+        # whenever a sale has ended but the catalog hasn't refreshed yet.
+        if live_data is not None:
+            campaign_text = merge_promo_labels(
+                live_data.get("campaign_text"),
+                live_data.get("fallback_campaign_text"),
+            )
+        else:
+            campaign_text = product_campaign_text
         median_30d = score["median"] if score else None
         meny_original = product.get("original_price")
-        uses_promo = bool(product.get("uses_promotion"))
+        # Only trust uses_promotion when a fresh live fetch confirmed today's price.
+        # Otherwise the cached flag may reflect a sale that already ended.
+        uses_promo = bool(product.get("uses_promotion")) and live_data is not None
 
         # Meny-first: bruk regulert førpris hvis kampanjeflagget og prisen faktisk er nede.
         # Ellers fall tilbake til 30-d median for stille prisreduksjoner.
@@ -1513,6 +1529,7 @@ def main():
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
     print(f"  Skippet stale Meny-rader med død produktside: {stats['stale_meny_rows_skipped']}")
+    print(f"  Promo-kandidater uten live-verifisering (hoppet over): {stats.get('unverified_promo_skipped', 0)}")
     print(f"  Utgåtte slugger funnet (ny 404, cachet {DEAD_SLUG_TTL_DAYS}d): {stats['dead_slug_new']}")
     print(f"  Utgåtte slugger hoppet over (fra cache): {stats['dead_slug_skipped']}")
     print(f"  Ferdige rader: {stats['rows_built']}")
