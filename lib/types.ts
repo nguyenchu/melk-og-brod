@@ -27,4 +27,5 @@ export type CartItem = {
   quantity: number;
   checked: boolean;
   added_at: string;
+  deal_expired: boolean;
 };

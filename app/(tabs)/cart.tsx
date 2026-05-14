@@ -526,6 +526,11 @@ const CartRow = memo(function CartRow({
             <Ionicons name="alert-circle" size={12} color="#fff" />
             <Text style={styles.discontinuedBadgeText}>Ikke i salg</Text>
           </View>
+        ) : item.deal_expired ? (
+          <View style={styles.expiredBadge}>
+            <Ionicons name="time-outline" size={12} color="#fff" />
+            <Text style={styles.expiredBadgeText}>Tilbud utløpt</Text>
+          </View>
         ) : null}
         <View style={styles.cartMetaRow}>
           <View style={styles.cartPriceBlock}>
@@ -775,6 +780,22 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   discontinuedBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  expiredBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#8A8A8E',
+    marginTop: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  expiredBadgeText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '600',
