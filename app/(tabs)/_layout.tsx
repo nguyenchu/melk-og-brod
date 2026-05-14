@@ -10,6 +10,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: ACCENT,
         headerStyle: { backgroundColor: '#fff' },
         headerTitleStyle: { fontWeight: '700' },
+        tabBarStyle: { paddingHorizontal: 60 },
       }}
     >
       <Tabs.Screen
