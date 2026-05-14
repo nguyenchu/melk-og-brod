@@ -335,6 +335,10 @@ def merge_product(by_ean, product):
     if not merged.get("promotions") and other.get("promotions"):
         merged["promotions"] = other.get("promotions")
 
+    merged["seen_in_catalog"] = bool(
+        preferred.get("seen_in_catalog") or other.get("seen_in_catalog")
+    )
+
     by_ean[ean] = merged
     return False
 
@@ -447,6 +451,10 @@ def platform_product_to_catalog_product(product):
         "description": product.get("description"),
         "slugifiedUrl": slug or None,
         "source_priority": 20,
+        # Marks a product that came from a live Meny response this run (catalog,
+        # search or campaign). Seed products loaded from the local cache lack it,
+        # so a full run can tell "still on Meny" from "stale leftover".
+        "seen_in_catalog": True,
     }
 
 
@@ -1250,6 +1258,7 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         "missing_score": 0,
         "missing_live_price": 0,
         "stale_meny_rows_skipped": 0,
+        "pruned_not_on_meny": 0,
         "rows_built": 0,
         "live_cache_hits": 0,
         "live_fetches": 0,
@@ -1264,6 +1273,9 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
     sample_missing_live = []
     total_products = len(products)
     no_score_live_fetches = 0
+    # True when this run pulled a real Meny catalog/search/campaign response, so
+    # absence from it is meaningful. False for pure incremental cache runs.
+    catalog_enumerated = any(p.get("seen_in_catalog") for p in products)
     for index, product in enumerate(products, start=1):
         ean = product.get("ean")
         if not ean:
@@ -1381,6 +1393,14 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
 
         if attempted_live_fetch and live_data is None and is_meny_url:
             stats["stale_meny_rows_skipped"] += 1
+            continue
+
+        # When this run actually swept the Meny catalog, a product that the sweep
+        # never returned — and that no live fetch confirmed alive — is a stale
+        # leftover from the local cache. Drop it so prune_stale_rows_from_supabase
+        # deletes its row instead of serving a frozen, long-dead price.
+        if catalog_enumerated and not product.get("seen_in_catalog") and live_data is None:
+            stats["pruned_not_on_meny"] = stats.get("pruned_not_on_meny", 0) + 1
             continue
 
         # Promo candidates without live verification can't be trusted as deals.
@@ -1556,6 +1576,7 @@ def main():
     print(f"  For lite historikk / ingen score: {stats['missing_score']}")
     print(f"  Mangler live-pris fra Meny: {stats['missing_live_price']}")
     print(f"  Skippet stale Meny-rader med død produktside: {stats['stale_meny_rows_skipped']}")
+    print(f"  Droppet (ikke funnet i Meny-katalogsweep): {stats['pruned_not_on_meny']}")
     print(f"  Promo-kandidater uten live-verifisering (hoppet over): {stats.get('unverified_promo_skipped', 0)}")
     print(f"  Utgåtte slugger funnet (ny 404, cachet {DEAD_SLUG_TTL_DAYS}d): {stats['dead_slug_new']}")
     print(f"  Utgåtte slugger hoppet over (fra cache): {stats['dead_slug_skipped']}")
