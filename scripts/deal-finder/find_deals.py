@@ -45,6 +45,11 @@ DB_PATH = SCRIPT_DIR / "deals.db"
 
 PRODUCT_SAMPLE_SIZE = int(os.environ.get("PRODUCT_SAMPLE_SIZE", "1000"))
 HISTORY_DAYS = 30
+# Once today's price has held unchanged for longer than this, the median-based
+# "silent price drop" logic treats it as the new regular price rather than a
+# deal — otherwise a permanent price change keeps reporting a stale drop for
+# weeks until the old price level ages out of the 30-day window.
+MEDIAN_DEAL_MAX_FLAT_DAYS = int(os.environ.get("MEDIAN_DEAL_MAX_FLAT_DAYS", "7"))
 RATE_LIMIT_SLEEP = 1.1  # Hobby-tier: 60 req/min
 MENY_HISTORY_STORE = "MENY_NO"
 LOCAL_HISTORY_STORE = "MENY_DIRECT"
@@ -615,16 +620,38 @@ def persist_local_price_history(conn, rows, today):
 
 
 def score_deal(meny_history):
-    if len(meny_history) < 3:
+    points = sorted(
+        (p for p in meny_history if p.get("price") and p.get("date")),
+        key=lambda p: p["date"],
+    )
+    if len(points) < 3:
         return None
-    sorted_by_date = sorted(meny_history, key=lambda p: p.get("date", ""))
-    today = sorted_by_date[-1]
-    today_price = today.get("price")
-    prev_prices = [p["price"] for p in sorted_by_date[:-1] if p.get("price")]
+    today = points[-1]
+    today_price = today["price"]
+
+    # Walk back over the most recent contiguous run of today's price. If that
+    # price has held for longer than MEDIAN_DEAL_MAX_FLAT_DAYS it's the new
+    # regular price, not a temporary drop — don't score it as a deal.
+    run_start = len(points) - 1
+    while run_start > 0 and points[run_start - 1]["price"] == today_price:
+        run_start -= 1
+    try:
+        run_days = (
+            datetime.fromisoformat(today["date"])
+            - datetime.fromisoformat(points[run_start]["date"])
+        ).days
+    except ValueError:
+        return None
+    if run_days > MEDIAN_DEAL_MAX_FLAT_DAYS:
+        return None
+
+    # Baseline is the price level from before the current run only, so a
+    # permanent step-down isn't averaged against its own new price.
+    prev_prices = [p["price"] for p in points[:run_start]]
     if not prev_prices:
         return None
     baseline = median(prev_prices)
-    if not today_price or not baseline or baseline == 0:
+    if not baseline or baseline == 0:
         return None
     return {
         "today_price": today_price,
