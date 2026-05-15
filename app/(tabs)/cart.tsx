@@ -430,7 +430,14 @@ const SearchResultRow = memo(function SearchResultRow({
       </View>
       <View style={styles.resultPriceColumn}>
         {showDeal ? (
-          <Text style={styles.dealBadge}>−{Math.round(item.drop_pct!)} %</Text>
+          <>
+            <Text style={[styles.dealBadge, !isMenyPromo && styles.dealBadgeMedian]}>
+              −{Math.round(item.drop_pct!)} %
+            </Text>
+            <Text style={[styles.resultSourceLabel, isMenyPromo ? styles.resultSourceLabelMeny : styles.resultSourceLabelMedian]}>
+              {isMenyPromo ? 'Kampanje' : 'Prisfall'}
+            </Text>
+          </>
         ) : null}
         {item.current_price != null ? (
           <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
@@ -842,6 +849,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     overflow: 'hidden',
   },
+  dealBadgeMedian: {
+    color: '#666',
+    backgroundColor: '#F0F0F3',
+  },
+  resultSourceLabel: { fontSize: 9, fontWeight: '600' },
+  resultSourceLabelMeny: { color: '#2B6A57' },
+  resultSourceLabelMedian: { color: '#999' },
   quantityControl: {
     flexDirection: 'row',
     alignItems: 'center',
