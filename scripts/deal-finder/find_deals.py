@@ -546,7 +546,7 @@ def fetch_products(seed_products=None):
     total_queries = sum(len(items) for items in SEARCH_SUPPLEMENT_GROUPS.values())
     query_index = 0
     consecutive_empty = 0
-    max_consecutive_empty = int(os.environ.get("SUPPLEMENT_CONSECUTIVE_EMPTY_MAX", "20"))
+    max_consecutive_empty = int(os.environ.get("SUPPLEMENT_CONSECUTIVE_EMPTY_MAX", "60"))
     print("Supplerer katalog med målrettede søk...")
     for group_name, queries in SEARCH_SUPPLEMENT_GROUPS.items():
         print(f"  Gruppe {group_name}: {len(queries)} søk")
