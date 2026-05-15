@@ -1,123 +1,108 @@
-"""Generate a redesigned app icon for Melk og Brød."""
-from PIL import Image, ImageDraw
+"""Generate a discount-tag style app icon for Melk og Brød.
 
-SIZE = 1024
+Renders at 4x size then downsamples for smooth edges (supersampling).
+"""
+from PIL import Image, ImageDraw, ImageFont
+
+FINAL = 1024
+SCALE = 4
+SIZE = FINAL * SCALE
+
 OUT = "assets/images/icon.png"
 OUT_512 = "assets/images/icon-512.png"
 
-BG     = (250, 246, 240, 255)
-RED    = (225, 10, 10)
-RED_D  = (175, 8, 8)
-WHITE  = (255, 255, 255)
-BREAD  = (205, 150, 45)
-BREAD_D = (160, 112, 22)
+RED      = (225, 10, 10)
+WHITE    = (255, 255, 255)
+CREAM    = (252, 240, 220)
+
+FONT_PATH = "/System/Library/Fonts/HelveticaNeue.ttc"
 
 
-def rrect(draw, x0, y0, x1, y1, r, fill):
+def rrect(draw, xy, r, fill):
+    x0, y0, x1, y1 = xy
     draw.rectangle([x0 + r, y0, x1 - r, y1], fill=fill)
     draw.rectangle([x0, y0 + r, x1, y1 - r], fill=fill)
     for cx, cy in [(x0, y0), (x1 - 2*r, y0), (x0, y1 - 2*r), (x1 - 2*r, y1 - 2*r)]:
         draw.ellipse([cx, cy, cx + 2*r, cy + 2*r], fill=fill)
 
 
-def draw_bread(draw, cx, cy, w, h):
-    bx, by = cx - w // 2, cy - h // 2
+# 1. Solid red background
+img = Image.new("RGBA", (SIZE, SIZE), RED + (255,))
 
-    # Body
-    body_top = by + h // 3
-    rrect(draw, bx, body_top, bx + w, by + h, 12, BREAD)
+# 2. Build the tag on a larger transparent layer so rotation has room
+LAYER = int(SIZE * 1.5)
+layer = Image.new("RGBA", (LAYER, LAYER), (0, 0, 0, 0))
+ld = ImageDraw.Draw(layer)
 
-    # Crust bottom strip
-    crust = h // 9
-    rrect(draw, bx, by + h - crust, bx + w, by + h, 12, BREAD_D)
+lcx = LAYER // 2
+lcy = LAYER // 2
 
-    # Three bumps on top
-    bump_r = int(w * 0.175)
-    bump_overlap = int(bump_r * 0.55)
-    for i in range(3):
-        bx_c = int(bx + (i + 0.5) * (w / 3))
-        draw.ellipse([bx_c - bump_r, body_top - bump_r + bump_overlap,
-                      bx_c + bump_r, body_top + bump_r + bump_overlap], fill=BREAD)
+# Tag body
+tag_w = int(SIZE * 0.66)
+tag_h = int(SIZE * 0.48)
+tag_l = lcx - tag_w // 2 + int(SIZE * 0.06)
+tag_t = lcy - tag_h // 2
+tag_r = tag_l + tag_w
+tag_b = tag_t + tag_h
+corner = int(SIZE * 0.05)
+rrect(ld, [tag_l, tag_t, tag_r, tag_b], corner, WHITE)
 
-    # Highlight on center bump
-    hl_r = int(bump_r * 0.38)
-    mx = cx
-    my = body_top - int(bump_r * 0.15)
-    draw.ellipse([mx - hl_r, my - int(hl_r * 0.6), mx + hl_r, my + int(hl_r * 0.6)],
-                 fill=(228, 182, 88))
+# Triangular point on left
+point_tip_x = tag_l - int(SIZE * 0.14)
+ld.polygon([
+    (tag_l + corner, tag_t + corner),
+    (tag_l + corner, tag_b - corner),
+    (point_tip_x, lcy),
+], fill=WHITE)
 
+# Smooth the join between body and point (cover any anti-alias seam)
+ld.rectangle([tag_l, tag_t + corner, tag_l + corner * 2, tag_b - corner], fill=WHITE)
 
-def draw_carton(draw, cx, cy, w, h):
-    bx, by = cx - w // 2, cy - h // 2
+# Hole near the tip — drawn red so it blends with background after rotation
+hole_r = int(SIZE * 0.058)
+hole_cx = tag_l - int(SIZE * 0.005)
+hole_cy = lcy
+ld.ellipse([hole_cx - hole_r, hole_cy - hole_r,
+            hole_cx + hole_r, hole_cy + hole_r], fill=RED + (255,))
 
-    roof_h = int(h * 0.15)
-    body_top = by + roof_h
+# Percent symbol with a real bold font, drawn in red on the tag
+font_size = int(SIZE * 0.38)
+try:
+    font = ImageFont.truetype(FONT_PATH, font_size, index=1)  # bold variant
+except Exception:
+    font = ImageFont.truetype(FONT_PATH, font_size)
 
-    # Body
-    rrect(draw, bx, body_top, bx + w, by + h, 10, RED)
+text = "%"
+# Measure & center inside tag (slightly right of geometric center to balance the point)
+bbox = ld.textbbox((0, 0), text, font=font)
+tw = bbox[2] - bbox[0]
+th = bbox[3] - bbox[1]
+text_cx = (tag_l + tag_r) // 2 + int(SIZE * 0.04)
+text_cy = (tag_t + tag_b) // 2
+text_x = text_cx - tw // 2 - bbox[0]
+text_y = text_cy - th // 2 - bbox[1]
+ld.text((text_x, text_y), text, font=font, fill=RED + (255,))
 
-    # Gable roof
-    peak_x = bx + w // 2
-    draw.polygon([(bx, body_top), (bx + w, body_top), (peak_x, by)], fill=RED_D)
+# 3. Rotate slightly for dynamic feel
+rotated = layer.rotate(-9, resample=Image.BICUBIC, expand=False)
+img.paste(rotated, ((SIZE - LAYER) // 2, (SIZE - LAYER) // 2), rotated)
 
-    # White flap at peak
-    fw = int(w * 0.20)
-    fh = int(roof_h * 0.70)
-    draw.polygon([
-        (peak_x - fw // 2, by + roof_h - fh),
-        (peak_x + fw // 2, by + roof_h - fh),
-        (peak_x, by),
-    ], fill=WHITE)
+# 4. Small cream milk-drop accent in upper-left to keep brand identity
+fd = ImageDraw.Draw(img)
+drop_cx = int(SIZE * 0.17)
+drop_cy = int(SIZE * 0.18)
+drop_r = int(SIZE * 0.042)
+fd.ellipse([drop_cx - drop_r, drop_cy - drop_r,
+            drop_cx + drop_r, drop_cy + drop_r], fill=CREAM + (255,))
+tip_h = int(drop_r * 1.1)
+fd.polygon([
+    (drop_cx - int(drop_r * 0.58), drop_cy - int(drop_r * 0.55)),
+    (drop_cx + int(drop_r * 0.58), drop_cy - int(drop_r * 0.55)),
+    (drop_cx, drop_cy - drop_r - tip_h),
+], fill=CREAM + (255,))
 
-    # Water drop (teardrop: pointed top, round bottom)
-    drop_cx = bx + w // 2
-    drop_cy = by + roof_h + int((h - roof_h) * 0.40)
-    r = int(w * 0.195)
-    tip_h = int(r * 1.0)
-    # Circle (bottom of drop)
-    draw.ellipse([drop_cx - r, drop_cy - r, drop_cx + r, drop_cy + r], fill=WHITE)
-    # Triangle tip (pointing up)
-    draw.polygon([
-        (drop_cx - int(r * 0.62), drop_cy - int(r * 0.55)),
-        (drop_cx + int(r * 0.62), drop_cy - int(r * 0.55)),
-        (drop_cx, drop_cy - r - tip_h),
-    ], fill=WHITE)
-
-    # Two label stripes at bottom
-    stripe_h = int(h * 0.048)
-    gap = int(h * 0.028)
-    margin = int(w * 0.14)
-    y1 = by + h - int(h * 0.20)
-    draw.rectangle([bx + margin, y1, bx + w - margin, y1 + stripe_h], fill=WHITE)
-    draw.rectangle([bx + margin, y1 + stripe_h + gap,
-                    bx + w - margin, y1 + stripe_h * 2 + gap], fill=WHITE)
-
-
-img = Image.new("RGBA", (SIZE, SIZE), BG)
-draw = ImageDraw.Draw(img)
-
-# Dimensions — carton tall and narrow, bread shorter and wider
-carton_w = int(SIZE * 0.36)
-carton_h = int(SIZE * 0.58)
-bread_w  = int(SIZE * 0.44)
-bread_h  = int(SIZE * 0.30)
-
-# Vertical center of both objects together
-mid_y = SIZE // 2 + SIZE // 40
-
-# Horizontal: overlap them so carton is in front-left, bread behind-right
-carton_cx = SIZE // 2 - int(SIZE * 0.07)
-carton_cy = mid_y
-
-bread_cx = carton_cx + int(carton_w * 0.50)
-bread_cy = mid_y + int(carton_h * 0.22)
-
-# Draw bread first (behind)
-draw_bread(draw, bread_cx, bread_cy, bread_w, bread_h)
-# Draw carton on top
-draw_carton(draw, carton_cx, carton_cy, carton_w, carton_h)
-
-out = img.convert("RGB")
-out.save(OUT, "PNG", optimize=True)
-out.resize((512, 512), Image.LANCZOS).save(OUT_512, "PNG", optimize=True)
+# 5. Downsample with high-quality resampling for smooth edges
+final = img.resize((FINAL, FINAL), Image.LANCZOS).convert("RGB")
+final.save(OUT, "PNG", optimize=True)
+final.resize((512, 512), Image.LANCZOS).save(OUT_512, "PNG", optimize=True)
 print(f"Saved {OUT} and {OUT_512}")

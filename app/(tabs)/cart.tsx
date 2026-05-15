@@ -371,7 +371,7 @@ function SearchResults({
           <ActivityIndicator style={{ marginTop: 24 }} />
         ) : query.trim().length < 2 ? null : (
           <View style={{ gap: 8 }}>
-            <Text style={styles.empty}>Ingen treff på Meny.</Text>
+            <Text style={styles.empty}>Ingen treff i appen ennå — varen kan likevel finnes på Meny.</Text>
             {manualAddCard}
           </View>
         )
