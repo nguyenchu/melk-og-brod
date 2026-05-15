@@ -1484,6 +1484,13 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
             drop_pct = round((median_30d - float(current_price)) / median_30d * 100, 2)
             price_source = "median"
 
+        # Clear suspiciously huge drops (≥85%). These are almost always artifacts
+        # of "pr kg" / "pr stk" subdivision prices vs full-pack medians, not real deals.
+        if drop_pct is not None and drop_pct >= 85:
+            drop_pct = None
+            original_price = None
+            price_source = None
+
         history_points = sorted(
             [{"date": p["date"], "price": p["price"]} for p in meny_points(history) if p.get("date") and p.get("price") is not None],
             key=lambda p: p["date"],
