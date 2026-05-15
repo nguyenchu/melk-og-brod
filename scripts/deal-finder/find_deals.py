@@ -551,6 +551,7 @@ def fetch_products(seed_products=None):
     for group_name, queries in SEARCH_SUPPLEMENT_GROUPS.items():
         print(f"  Gruppe {group_name}: {len(queries)} søk")
         group_added = 0
+        consecutive_empty = 0
         for query in queries:
             query_index += 1
             response, batch, _total = fetch_platform_search_products(platform, query)
@@ -569,8 +570,8 @@ def fetch_products(seed_products=None):
             else:
                 consecutive_empty = 0
             if consecutive_empty >= max_consecutive_empty:
-                print(f"    {max_consecutive_empty} sammenhengende søk uten nye varer — stopper supplement-søk tidlig")
-                return list(by_ean.values())
+                print(f"    {max_consecutive_empty} sammenhengende søk uten nye varer i {group_name} — hopper til neste gruppe")
+                break
             if PRODUCT_LIMIT > 0 and len(by_ean) >= PRODUCT_LIMIT:
                 print(f"    nådde PRODUCT_LIMIT={PRODUCT_LIMIT}")
                 return list(by_ean.values())
