@@ -806,6 +806,27 @@ def normalize_promo_text(value):
     return text[:120]
 
 
+def has_active_promotion(product):
+    """True if the product has at least one promotion whose date range covers today."""
+    promotions = product.get("promotions") or []
+    if not isinstance(promotions, list) or not promotions:
+        return False
+    now = datetime.now(timezone.utc)
+    for promo in promotions:
+        if not isinstance(promo, dict):
+            continue
+        from_str = promo.get("from") or promo.get("validFrom")
+        to_str = promo.get("to") or promo.get("validTo")
+        try:
+            start = datetime.fromisoformat(from_str) if from_str else None
+            end = datetime.fromisoformat(to_str) if to_str else None
+        except (TypeError, ValueError):
+            continue
+        if start and end and start <= now <= end:
+            return True
+    return False
+
+
 def merge_promo_labels(*parts):
     merged = []
     seen = set()
@@ -1407,9 +1428,16 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         # Promo candidates without live verification can't be trusted as deals.
         # Keep the product (so it stays searchable / cart-addable), but strip the
         # catalog's potentially stale promo signals so it doesn't appear as a fake deal.
+        # Exception: if the catalog promotion has explicit from/to dates that cover
+        # today, the label is fresh enough to trust without a live fetch.
         if is_promo_candidate and live_data is None:
-            stats["unverified_promo_skipped"] = stats.get("unverified_promo_skipped", 0) + 1
-            product_campaign_text = None
+            if has_active_promotion(product):
+                stats["unverified_promo_kept_by_dates"] = (
+                    stats.get("unverified_promo_kept_by_dates", 0) + 1
+                )
+            else:
+                stats["unverified_promo_skipped"] = stats.get("unverified_promo_skipped", 0) + 1
+                product_campaign_text = None
 
         current_price = live_price if live_price is not None else base_price
         if current_price is None:
