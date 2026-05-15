@@ -1346,11 +1346,14 @@ def build_supabase_rows(products, histories, live_price_session, live_cache_by_e
         )
         # Verify deal candidates with no price history so we catch dead Meny slugs
         # (e.g. seasonal promos like Påskeskum that vanish after the campaign ends).
+        # Skip verification when the catalog includes promotion dates covering today —
+        # the dates themselves prove the campaign is current.
         wants_live_for_promo = (
             not score
             and is_meny_url
             and is_promo_candidate
             and no_score_live_fetches < MAX_NO_SCORE_LIVE_FETCHES
+            and not has_active_promotion(product)
         )
         needs_live_data = bool(score) or wants_live_without_score or wants_live_for_promo
         if live_data is not None:
