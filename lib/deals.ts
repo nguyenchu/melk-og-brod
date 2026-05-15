@@ -41,7 +41,15 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
   fiskeburger: ['lofotburger', 'lofoten', 'burger'],
   lofoten: ['lofoten', 'lofotburger', 'fiskeburger'],
   lofotburger: ['lofoten', 'fiskeburger'],
+  nespresso: ['nespresso', 'kapsel', 'kaffekapsel'],
 };
+
+// Phrase-level synonyms: if ALL words in the key phrase appear in the query, the
+// values are added to the expanded term set. Used for compound brands like
+// "dolce gusto" where each word alone would be too noisy.
+const PHRASE_SYNONYMS: { phrase: string[]; expansions: string[] }[] = [
+  { phrase: ['dolce', 'gusto'], expansions: ['kapsel', 'kaffekapsel'] },
+];
 const STAPLE_PROFILES: Record<
   string,
   {
@@ -274,6 +282,14 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
 
 function expandSearchTerms(terms: string[]) {
   const expanded = new Set(terms);
+  const termSet = new Set(terms);
+  for (const { phrase, expansions } of PHRASE_SYNONYMS) {
+    if (phrase.every((word) => termSet.has(word))) {
+      for (const extra of expansions) {
+        expanded.add(normalizeSearchText(extra));
+      }
+    }
+  }
   for (const term of terms) {
     for (const synonym of SEARCH_SYNONYMS[term] ?? []) {
       expanded.add(normalizeSearchText(synonym));
