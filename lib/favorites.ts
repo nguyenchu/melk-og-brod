@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import { syncFavoritesToServer } from './notifications';
 
 const FAVORITES_KEY = 'favorites.v1';
 
@@ -24,6 +25,9 @@ async function persist(items: FavoriteItem[]) {
   cache = items;
   await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(items));
   listeners.forEach((l) => l());
+  // Best-effort: keep server's view of this device's favorites in sync so the
+  // scraper can target push notifications when a favorite drops in price.
+  syncFavoritesToServer(items.map((i) => i.ean)).catch(() => {});
 }
 
 export async function toggleFavorite(item: FavoriteItem) {
