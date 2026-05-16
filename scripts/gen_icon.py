@@ -20,6 +20,7 @@ OUT_ANDROID_FG = "assets/images/android-icon-foreground.png"
 OUT_ANDROID_BG = "assets/images/android-icon-background.png"
 OUT_ANDROID_MONO = "assets/images/android-icon-monochrome.png"
 OUT_SPLASH = "assets/images/splash-icon.png"
+OUT_FEATURE = "assets/images/feature-graphic.png"
 
 RED      = (225, 10, 10)
 WHITE    = (255, 255, 255)
@@ -145,4 +146,49 @@ splash = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
 paste_centered(splash, build_tag_alpha(SIZE, color=RED))
 save_downsampled(splash, OUT_SPLASH, mode="RGBA")
 
-print(f"Saved:\n  {OUT}\n  {OUT_512}\n  {OUT_ANDROID_FG}\n  {OUT_ANDROID_BG}\n  {OUT_ANDROID_MONO}\n  {OUT_SPLASH}")
+# 6. Play Store feature graphic (1024 × 500). Cream bg, title left, red tag right.
+FG_W = 1024
+FG_H = 500
+FG_SCALE = 4
+FG_SIZE = FG_H * FG_SCALE  # work at 4x for crisp edges
+feature_full = Image.new("RGBA", (FG_W * FG_SCALE, FG_H * FG_SCALE), (255, 244, 232, 255))
+fdraw = ImageDraw.Draw(feature_full)
+
+title_font = get_font(int(FG_H * 0.17 * FG_SCALE))
+tagline_font = get_font(int(FG_H * 0.068 * FG_SCALE))
+
+title = "Melk & Brød"
+tagline = "Beste tilbud fra Meny"
+
+title_bbox = fdraw.textbbox((0, 0), title, font=title_font)
+title_w = title_bbox[2] - title_bbox[0]
+title_h = title_bbox[3] - title_bbox[1]
+
+tagline_bbox = fdraw.textbbox((0, 0), tagline, font=tagline_font)
+tagline_h = tagline_bbox[3] - tagline_bbox[1]
+
+text_x = int(FG_W * 0.08 * FG_SCALE)
+text_block_h = title_h + int(FG_H * 0.10 * FG_SCALE) + tagline_h
+text_y = (FG_H * FG_SCALE - text_block_h) // 2 - title_bbox[1]
+
+fdraw.text((text_x, text_y), title, font=title_font, fill=RED + (255,))
+
+# Underline accent
+underline_y = text_y + title_bbox[3] + int(FG_H * 0.03 * FG_SCALE)
+fdraw.rectangle([text_x, underline_y, text_x + int(title_w * 0.6),
+                 underline_y + int(FG_H * 0.012 * FG_SCALE)], fill=(170, 118, 28, 255))
+
+# Tagline
+tagline_y = underline_y + int(FG_H * 0.06 * FG_SCALE) - tagline_bbox[1]
+fdraw.text((text_x, tagline_y), tagline, font=tagline_font, fill=(80, 60, 40, 255))
+
+# Tag on the right (sized so it doesn't overlap the title block)
+tag_layer = build_tag_alpha(int(FG_H * 0.62 * FG_SCALE), color=RED)
+tag_x = int(FG_W * FG_SCALE - tag_layer.width - FG_H * 0.06 * FG_SCALE)
+tag_y = (FG_H * FG_SCALE - tag_layer.height) // 2
+feature_full.paste(tag_layer, (tag_x, tag_y), tag_layer)
+
+feature_final = feature_full.resize((FG_W, FG_H), Image.LANCZOS).convert("RGB")
+feature_final.save(OUT_FEATURE, "PNG", optimize=True)
+
+print(f"Saved:\n  {OUT}\n  {OUT_512}\n  {OUT_ANDROID_FG}\n  {OUT_ANDROID_BG}\n  {OUT_ANDROID_MONO}\n  {OUT_SPLASH}\n  {OUT_FEATURE}")
