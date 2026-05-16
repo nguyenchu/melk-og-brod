@@ -81,7 +81,9 @@ export default function CartScreen() {
     };
   }, [query, runSearch, searchMode]);
 
-  async function onAddProduct(p: MenyProduct) {
+  // onAddProduct is passed to every SearchResultRow; useCallback keeps the
+  // reference stable so memoized rows don't re-render on every parent update.
+  const onAddProduct = useCallback(async (p: MenyProduct) => {
     await addToCart({
       name: p.name,
       ean: p.ean,
@@ -93,7 +95,7 @@ export default function CartScreen() {
     setQuery('');
     setResults([]);
     Keyboard.dismiss();
-  }
+  }, []);
 
   async function onShare() {
     if (active.length === 0) return;
@@ -334,26 +336,40 @@ function SearchResults({
   onAddManual: () => void;
   bottomInset: number;
 }) {
-  const manualAddCard = (
-    <View style={styles.manualAddCard}>
-      <Pressable style={styles.manualAddAction} onPress={onAddManual}>
-        <Ionicons name="add-circle" size={22} color="#E10A0A" />
-        <Text style={styles.manualAddText}>
-          Legg til “{query.trim()}” manuelt
-        </Text>
-      </Pressable>
-      <View style={styles.manualPriceRow}>
-        <Text style={styles.manualPriceLabel}>Ca. pris</Text>
-        <TextInput
-          style={styles.manualPriceInput}
-          value={manualPrice}
-          onChangeText={onChangeManualPrice}
-          placeholder="valgfri"
-          keyboardType="decimal-pad"
-        />
-        <Text style={styles.manualPriceSuffix}>kr</Text>
+  const manualAddCard = useMemo(
+    () => (
+      <View style={styles.manualAddCard}>
+        <Pressable style={styles.manualAddAction} onPress={onAddManual}>
+          <Ionicons name="add-circle" size={22} color="#E10A0A" />
+          <Text style={styles.manualAddText}>
+            Legg til “{query.trim()}” manuelt
+          </Text>
+        </Pressable>
+        <View style={styles.manualPriceRow}>
+          <Text style={styles.manualPriceLabel}>Ca. pris</Text>
+          <TextInput
+            style={styles.manualPriceInput}
+            value={manualPrice}
+            onChangeText={onChangeManualPrice}
+            placeholder="valgfri"
+            keyboardType="decimal-pad"
+          />
+          <Text style={styles.manualPriceSuffix}>kr</Text>
+        </View>
       </View>
-    </View>
+    ),
+    [query, manualPrice, onAddManual, onChangeManualPrice],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: MenyProduct }) => (
+      <SearchResultRow
+        item={item}
+        cartQuantity={item.ean ? activeCartByEan.get(item.ean) ?? 0 : 0}
+        onPick={onPick}
+      />
+    ),
+    [activeCartByEan, onPick],
   );
 
   return (
@@ -365,6 +381,7 @@ function SearchResults({
       initialNumToRender={12}
       maxToRenderPerBatch={12}
       windowSize={7}
+      removeClippedSubviews
       ListHeaderComponent={
         searchMode === 'deals' ? <Text style={styles.searchHint}>Viser bare varer med aktiv kampanje eller prisfall</Text> : null
       }
@@ -378,18 +395,8 @@ function SearchResults({
           </View>
         )
       }
-      renderItem={({ item }) => (
-        <SearchResultRow
-          item={item}
-          cartQuantity={item.ean ? activeCartByEan.get(item.ean) ?? 0 : 0}
-          onPick={onPick}
-        />
-      )}
-      ListFooterComponent={
-        results.length > 0 ? (
-          manualAddCard
-        ) : null
-      }
+      renderItem={renderItem}
+      ListFooterComponent={results.length > 0 ? manualAddCard : null}
     />
   );
 }

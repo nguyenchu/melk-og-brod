@@ -152,6 +152,10 @@ export default function DealsScreen() {
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       stickyHeaderIndices={[0]}
+      initialNumToRender={10}
+      maxToRenderPerBatch={10}
+      windowSize={7}
+      removeClippedSubviews
       ListHeaderComponent={
         <View style={styles.stickyHeader}>
           {error ? (
