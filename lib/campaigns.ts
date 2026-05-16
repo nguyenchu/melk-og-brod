@@ -54,6 +54,74 @@ export function getBundlePayForOffer(value: string | null | undefined) {
   return null;
 }
 
+type BundleItem = {
+  price: number | null;
+  quantity: number;
+  campaign_text?: string | null;
+  checked?: boolean;
+};
+
+export function computeCartTotals<T extends BundleItem>(items: readonly T[]): {
+  total: number;
+  naiveSubtotal: number;
+  savings: number;
+  bundleSavings: { campaign: string; saved: number }[];
+} {
+  const groups = new Map<string, T[]>();
+  const ungrouped: T[] = [];
+
+  for (const item of items) {
+    if (item.checked) continue;
+    if (item.price == null || item.price <= 0 || item.quantity <= 0) continue;
+    const offer = getBundlePayForOffer(item.campaign_text);
+    if (offer && item.campaign_text) {
+      const key = item.campaign_text.trim();
+      const arr = groups.get(key) ?? [];
+      arr.push(item);
+      groups.set(key, arr);
+    } else {
+      ungrouped.push(item);
+    }
+  }
+
+  let naiveSubtotal = 0;
+  let total = 0;
+  const bundleSavings: { campaign: string; saved: number }[] = [];
+
+  for (const item of ungrouped) {
+    const line = item.price! * item.quantity;
+    naiveSubtotal += line;
+    total += line;
+  }
+
+  for (const [campaign, group] of groups) {
+    const offer = getBundlePayForOffer(campaign)!;
+    const unitPrices: number[] = [];
+    for (const item of group) {
+      for (let i = 0; i < item.quantity; i++) unitPrices.push(item.price!);
+    }
+    unitPrices.sort((a, b) => a - b);
+    const totalUnits = unitPrices.length;
+    const bundles = Math.floor(totalUnits / offer.buy);
+    const freeUnits = bundles * (offer.buy - offer.payFor);
+    const groupNaive = unitPrices.reduce((s, p) => s + p, 0);
+    const groupPaid = unitPrices.slice(freeUnits).reduce((s, p) => s + p, 0);
+    naiveSubtotal += groupNaive;
+    total += groupPaid;
+    const saved = groupNaive - groupPaid;
+    if (saved > 0.001) {
+      bundleSavings.push({ campaign, saved });
+    }
+  }
+
+  return {
+    total,
+    naiveSubtotal,
+    savings: naiveSubtotal - total,
+    bundleSavings,
+  };
+}
+
 export function getCampaignKind(value: string | null | undefined) {
   const normalized = value?.trim().toLowerCase() ?? '';
   if (!normalized) return 'generic' as const;

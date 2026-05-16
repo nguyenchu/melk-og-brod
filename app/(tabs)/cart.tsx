@@ -21,7 +21,7 @@ import {
   updateQuantity,
   useCart,
 } from '@/lib/cart';
-import { getBundlePayForOffer, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
+import { computeCartTotals, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasSupabaseConfig } from '@/lib/supabase';
@@ -30,16 +30,9 @@ import type { CartItem, MenyProduct } from '@/lib/types';
 
 type SearchMode = 'all' | 'deals';
 
-function getCartItemTotal(item: Pick<CartItem, 'price' | 'quantity' | 'campaign_text'>) {
+function getLineTotal(item: Pick<CartItem, 'price' | 'quantity'>) {
   if (item.price == null) return 0;
-
-  const bundleOffer = getBundlePayForOffer(item.campaign_text);
-  if (!bundleOffer) return item.price * item.quantity;
-
-  const bundleCount = Math.floor(item.quantity / bundleOffer.buy);
-  const remainder = item.quantity % bundleOffer.buy;
-  const payableUnits = bundleCount * bundleOffer.payFor + remainder;
-  return payableUnits * item.price;
+  return item.price * item.quantity;
 }
 
 export default function CartScreen() {
@@ -157,7 +150,8 @@ export default function CartScreen() {
     return map;
   }, [active]);
 
-  const total = useMemo(() => items.reduce((sum, i) => sum + getCartItemTotal(i), 0), [items]);
+  const cartTotals = useMemo(() => computeCartTotals(active), [active]);
+  const { total, savings } = cartTotals;
   const showStickyTotal = items.length > 0 && total > 0;
 
   if (loading) {
@@ -304,7 +298,7 @@ export default function CartScreen() {
           }
         />
       )}
-      {showStickyTotal ? <StickyTotal total={total} searching={showSearchPanel} /> : null}
+      {showStickyTotal ? <StickyTotal total={total} savings={savings} searching={showSearchPanel} /> : null}
     </View>
   );
 }
@@ -465,13 +459,20 @@ const SearchResultRow = memo(function SearchResultRow({
   );
 });
 
-function StickyTotal({ total, searching }: { total: number; searching: boolean }) {
+function StickyTotal({ total, savings, searching }: { total: number; savings: number; searching: boolean }) {
+  const showSavings = savings > 0.005;
   return (
     <View style={styles.stickyTotalWrap}>
       <View style={styles.stickyTotal}>
         <View>
           <Text style={styles.totalLabel}>Estimert total</Text>
-          <Text style={styles.totalHint}>{searching ? 'Oppdatert mens du søker' : 'Basert på varene i lista'}</Text>
+          <Text style={styles.totalHint}>
+            {showSavings
+              ? `Du sparer ${savings.toFixed(2)} kr på kampanjer`
+              : searching
+                ? 'Oppdatert mens du søker'
+                : 'Basert på varene i lista'}
+          </Text>
         </View>
         <Text style={styles.totalValue}>{total.toFixed(2)} kr</Text>
       </View>
@@ -494,11 +495,7 @@ const CartRow = memo(function CartRow({
 }) {
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
   const value = draftQuantity ?? String(item.quantity);
-  const lineTotal = getCartItemTotal(item);
-  const bundleOffer = getBundlePayForOffer(item.campaign_text);
-  const regularTotal = item.price != null ? item.price * item.quantity : null;
-  const hasBundleSavings =
-    bundleOffer != null && regularTotal != null && regularTotal - lineTotal > 0.001;
+  const lineTotal = getLineTotal(item);
   const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.price, ean: item.ean });
 
   function commit() {
@@ -586,11 +583,6 @@ const CartRow = memo(function CartRow({
             </Pressable>
           </View>
         </View>
-        {hasBundleSavings ? (
-          <Text style={styles.bundleHint}>
-            Ordinært {regularTotal!.toFixed(2)} kr · kampanje trukket fra
-          </Text>
-        ) : null}
         {isLikelyCampaignText(item.campaign_text) ? (
           <CampaignBadge text={item.campaign_text!} />
         ) : null}
@@ -831,7 +823,6 @@ const styles = StyleSheet.create({
   cartPriceSecondary: { color: '#777', fontWeight: '500' },
   cartPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   cartUnitPrice: { fontSize: 11, color: '#777', marginTop: 1 },
-  bundleHint: { fontSize: 11, color: '#2E8B57', marginTop: 1 },
   cartActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
