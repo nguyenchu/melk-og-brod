@@ -1664,6 +1664,137 @@ def main():
     push_to_supabase(rows)
     delete_dead_slugs_from_supabase(all_dead_eans)
     prune_stale_rows_from_supabase({r["ean"] for r in rows})
+    notify_favorite_deals(rows)
+
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+FAVORITE_DROP_THRESHOLD = float(os.environ.get("FAVORITE_DROP_THRESHOLD", "5"))
+NOTIFICATION_COOLDOWN_HOURS = int(os.environ.get("NOTIFICATION_COOLDOWN_HOURS", "24"))
+
+
+def notify_favorite_deals(rows):
+    """For every push_tokens row, send a notification when one of the user's
+    favorite EANs has a fresh drop ≥ FAVORITE_DROP_THRESHOLD and hasn't been
+    notified within NOTIFICATION_COOLDOWN_HOURS."""
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+        return
+
+    deals_by_ean = {
+        r["ean"]: r
+        for r in rows
+        if r.get("ean")
+        and r.get("drop_pct") is not None
+        and r["drop_pct"] >= FAVORITE_DROP_THRESHOLD
+    }
+    if not deals_by_ean:
+        print("Ingen favoritt-verdige tilbud i denne kjøringen.")
+        return
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    list_url = f"{SUPABASE_URL}/rest/v1/push_tokens?select=token,favorite_eans,last_notified"
+    try:
+        resp = requests.get(list_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+    except Exception as exc:
+        print(f"  push_tokens hent feilet: {exc}")
+        return
+    tokens = resp.json() or []
+    if not tokens:
+        return
+
+    now = datetime.now(timezone.utc)
+    cooldown_seconds = NOTIFICATION_COOLDOWN_HOURS * 3600
+    push_messages = []
+    token_updates = []
+
+    for row in tokens:
+        token = row.get("token")
+        if not token:
+            continue
+        favorites = row.get("favorite_eans") or []
+        last_notified = row.get("last_notified") or {}
+        new_deals = []
+        for ean in favorites:
+            deal = deals_by_ean.get(ean)
+            if not deal:
+                continue
+            last_str = last_notified.get(ean)
+            if last_str:
+                try:
+                    last_dt = datetime.fromisoformat(last_str)
+                    if (now - last_dt).total_seconds() < cooldown_seconds:
+                        continue
+                except ValueError:
+                    pass
+            new_deals.append(deal)
+
+        if not new_deals:
+            continue
+
+        if len(new_deals) == 1:
+            d = new_deals[0]
+            title = "Favoritten din er på tilbud"
+            body = (
+                f"{d.get('name','')} – {d['current_price']:.2f} kr "
+                f"(−{int(round(d['drop_pct']))}%)"
+            )
+        else:
+            title = f"{len(new_deals)} favoritter er på tilbud"
+            body = ", ".join(
+                f"{d.get('name','')} (−{int(round(d['drop_pct']))}%)"
+                for d in new_deals[:3]
+            )
+            if len(new_deals) > 3:
+                body += f" + {len(new_deals) - 3} til"
+
+        push_messages.append({
+            "to": token,
+            "title": title,
+            "body": body,
+            "channelId": "deals",
+            "sound": "default",
+        })
+
+        merged_notified = {**last_notified}
+        ts = now.isoformat()
+        for d in new_deals:
+            merged_notified[d["ean"]] = ts
+        token_updates.append((token, merged_notified))
+
+    if not push_messages:
+        print("Ingen nye favoritt-deals å varsle om.")
+        return
+
+    sent = 0
+    for i in range(0, len(push_messages), 100):
+        chunk = push_messages[i : i + 100]
+        try:
+            r = requests.post(EXPO_PUSH_URL, json=chunk, timeout=20)
+            if r.ok:
+                sent += len(chunk)
+            else:
+                print(f"  Expo push feilet {r.status_code}: {r.text[:200]}")
+        except Exception as exc:
+            print(f"  Expo push feilet: {exc}")
+
+    print(f"Sendte {sent} push-notifikasjon(er).")
+
+    update_url = f"{SUPABASE_URL}/rest/v1/push_tokens"
+    update_headers = {**headers, "Prefer": "return=minimal"}
+    for token, merged_notified in token_updates:
+        try:
+            requests.patch(
+                f"{update_url}?token=eq.{token}",
+                headers=update_headers,
+                json={"last_notified": merged_notified},
+                timeout=15,
+            )
+        except Exception as exc:
+            print(f"  Klarte ikke oppdatere last_notified for {token[:20]}…: {exc}")
 
 
 if __name__ == "__main__":
