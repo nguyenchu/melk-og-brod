@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -7,6 +8,7 @@ import {
   FlatList,
   Keyboard,
   Pressable,
+  RefreshControl,
   Share,
   StyleSheet,
   Text,
@@ -36,7 +38,12 @@ function getLineTotal(item: Pick<CartItem, 'price' | 'quantity'>) {
 }
 
 export default function CartScreen() {
-  const { items, loading } = useCart();
+  const { items, loading, sync } = useCart();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await sync(); } finally { setRefreshing(false); }
+  }, [sync]);
   const favorites = useFavorites();
   const [query, setQuery] = useState('');
   const [manualPrice, setManualPrice] = useState('');
@@ -223,6 +230,7 @@ export default function CartScreen() {
         <FlatList
           data={active}
           keyExtractor={(i) => i.id}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: showStickyTotal ? 108 : 32 },

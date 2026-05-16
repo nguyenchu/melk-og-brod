@@ -1,8 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
 import { hasSupabaseConfig, requireSupabase } from './supabase';
 import type { CartItem } from './types';
+
+function haptic(style: Haptics.ImpactFeedbackStyle | 'selection') {
+  if (style === 'selection') {
+    Haptics.selectionAsync().catch(() => {});
+  } else {
+    Haptics.impactAsync(style).catch(() => {});
+  }
+}
 
 const STORAGE_KEY = 'cart.v1';
 
@@ -196,7 +205,7 @@ export function useCart() {
     };
   }, [sync]);
 
-  return { items, loading };
+  return { items, loading, sync };
 }
 
 export async function addToCart(input: {
@@ -225,6 +234,7 @@ export async function addToCart(input: {
           : i,
       ),
     );
+    haptic(Haptics.ImpactFeedbackStyle.Light);
     return { ...existing, quantity: nextQuantity, campaign_text: nextCampaignText, deal_expired: false };
   }
   const item: CartItem = {
@@ -241,12 +251,14 @@ export async function addToCart(input: {
     deal_expired: false,
   };
   await persist([...items, item]);
+  haptic(Haptics.ImpactFeedbackStyle.Medium);
   return item;
 }
 
 export async function toggleChecked(id: string) {
   const items = await loadFromStorage();
   await persist(items.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)));
+  haptic('selection');
 }
 
 export async function removeFromCart(id: string) {
