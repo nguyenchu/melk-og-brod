@@ -446,7 +446,26 @@ export async function searchProducts(
   }
   const { data, error } = await queryBuilder.limit(candidateLimit);
   if (error) throw error;
-  const ranked = ((data ?? []) as MenyProduct[])
+  let pool = (data ?? []) as MenyProduct[];
+
+  // Fallback: if our keyword index missed the query (or only matched a few),
+  // ask Meny's own search API for EANs and pull those rows from our DB. This
+  // gives us Meny's smarter relevance (synonyms, brand grouping, etc.) without
+  // maintaining an exhaustive synonym table on our side.
+  if (!dealsOnly && pool.length < MIN_RESULTS_BEFORE_LIVE_FALLBACK) {
+    const liveEans = await fetchMenyLiveEans(q);
+    const known = new Set(pool.map((p) => p.ean));
+    const missing = liveEans.filter((ean) => !known.has(ean));
+    if (missing.length > 0) {
+      const { data: extraData } = await supabase
+        .from('meny_products')
+        .select('*')
+        .in('ean', missing);
+      if (extraData) pool = pool.concat(extraData as MenyProduct[]);
+    }
+  }
+
+  const ranked = pool
     .filter((product) => (dealsOnly ? isActiveDealProduct(product, ACTIVE_DEAL_DROP_PCT) : true))
     .map((product) => ({ product, score: scoreProduct(product, terms) }))
     .filter((entry) => entry.score >= 0)
@@ -465,4 +484,34 @@ export async function searchProducts(
     .map((entry) => entry.product);
   const finalLimit = dealsOnly ? Math.max(limit, DEAL_SEARCH_LIMIT) : limit;
   return disambiguateDisplayNames(dedupeProducts(ranked).slice(0, finalLimit));
+}
+
+const MIN_RESULTS_BEFORE_LIVE_FALLBACK = 5;
+const MENY_LIVE_SEARCH_URL = 'https://platform-rest-prod.ngdata.no/api/products/1300/0/';
+
+async function fetchMenyLiveEans(query: string): Promise<string[]> {
+  try {
+    const url = `${MENY_LIVE_SEARCH_URL}?${new URLSearchParams({
+      search: query,
+      page_size: '30',
+      full_response: 'true',
+      fieldset: 'maximal',
+      showNotForSale: 'false',
+    })}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const payload = await res.json();
+    const hits = payload?.hits?.hits ?? [];
+    return hits
+      .map((hit: any) => hit?._source?.ean)
+      .filter((ean: unknown): ean is string => typeof ean === 'string' && ean.length > 0);
+  } catch {
+    return [];
+  }
 }
