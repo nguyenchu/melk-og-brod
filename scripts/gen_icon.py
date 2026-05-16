@@ -19,6 +19,7 @@ OUT_512 = "assets/images/icon-512.png"
 OUT_ANDROID_FG = "assets/images/android-icon-foreground.png"
 OUT_ANDROID_BG = "assets/images/android-icon-background.png"
 OUT_ANDROID_MONO = "assets/images/android-icon-monochrome.png"
+OUT_SPLASH = "assets/images/splash-icon.png"
 
 RED      = (225, 10, 10)
 WHITE    = (255, 255, 255)
@@ -138,4 +139,10 @@ mono = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
 paste_centered(mono, build_tag_alpha(int(SIZE * 0.66), color=WHITE))
 save_downsampled(mono, OUT_ANDROID_MONO, mode="RGBA")
 
-print(f"Saved:\n  {OUT}\n  {OUT_512}\n  {OUT_ANDROID_FG}\n  {OUT_ANDROID_BG}\n  {OUT_ANDROID_MONO}")
+# 5. Splash icon — red tag with cut-out % on transparent bg.
+# Renders against the cream splash background as a stand-alone discount tag.
+splash = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+paste_centered(splash, build_tag_alpha(SIZE, color=RED))
+save_downsampled(splash, OUT_SPLASH, mode="RGBA")
+
+print(f"Saved:\n  {OUT}\n  {OUT_512}\n  {OUT_ANDROID_FG}\n  {OUT_ANDROID_BG}\n  {OUT_ANDROID_MONO}\n  {OUT_SPLASH}")
