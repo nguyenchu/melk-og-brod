@@ -5,6 +5,7 @@ import React from 'react';
 import 'react-native-reanimated';
 import { StyleSheet, Text, View } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Onboarding, useOnboarding } from '@/components/onboarding';
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -35,6 +36,7 @@ const errorStyles = StyleSheet.create({
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const { needsOnboarding, markDone } = useOnboarding();
 
   return (
     <ErrorBoundary>
@@ -43,6 +45,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
         <StatusBar style="auto" />
+        {needsOnboarding && <Onboarding onDone={markDone} />}
       </ThemeProvider>
     </ErrorBoundary>
   );
