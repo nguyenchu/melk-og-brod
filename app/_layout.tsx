@@ -43,6 +43,15 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="settings"
+            options={{
+              title: 'Innstillinger',
+              presentation: 'modal',
+              headerStyle: { backgroundColor: '#fff' },
+              headerTitleStyle: { fontWeight: '700' },
+            }}
+          />
         </Stack>
         <StatusBar style="auto" />
         {needsOnboarding && <Onboarding onDone={markDone} />}
