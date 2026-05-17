@@ -17,6 +17,7 @@ import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-nat
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
+import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasSupabaseConfig } from '@/lib/supabase';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
@@ -214,6 +215,8 @@ const DealRow = memo(function DealRow({
   cartQuantity: number;
   onSelect: (item: MenyProduct) => void;
 }) {
+  const favorites = useFavorites();
+  const starred = favorites.some((f) => f.ean === item.ean);
   const inCart = cartQuantity > 0;
 
   async function onIncrement() {
@@ -308,9 +311,17 @@ const DealRow = memo(function DealRow({
             <Ionicons name="add" size={20} color="#fff" />
           </Pressable>
         )}
-        <Pressable onPress={() => onSelect(item)} hitSlop={8} style={styles.infoBtn}>
-          <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
-        </Pressable>
+        <View style={styles.rightExtras}>
+          <Pressable
+            onPress={() => toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price })}
+            hitSlop={8}
+          >
+            <Ionicons name={starred ? 'star' : 'star-outline'} size={16} color={starred ? '#F5A623' : '#bbb'} />
+          </Pressable>
+          <Pressable onPress={() => onSelect(item)} hitSlop={8}>
+            <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -612,6 +623,7 @@ const styles = StyleSheet.create({
     color: '#2E8B57',
   },
   infoBtn: { marginTop: 4, padding: 2 },
+  rightExtras: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
   modalSheet: {
     backgroundColor: '#fff',

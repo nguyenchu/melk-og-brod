@@ -257,7 +257,9 @@ export async function addToCart(input: {
 
 export async function toggleChecked(id: string) {
   const items = await loadFromStorage();
-  await persist(items.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i)));
+  await persist(
+    items.map((i) => (i.id === id ? { ...i, checked: !i.checked, deal_expired: false } : i)),
+  );
   haptic('selection');
 }
 
@@ -284,7 +286,9 @@ export async function updateQuantity(id: string, quantity: number) {
     await persist(items.filter((i) => i.id !== id));
     return;
   }
-  await persist(items.map((i) => (i.id === id ? { ...i, quantity } : i)));
+  await persist(
+    items.map((i) => (i.id === id ? { ...i, quantity, deal_expired: false } : i)),
+  );
 }
 
 export async function clearChecked() {

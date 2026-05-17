@@ -185,8 +185,21 @@ function getStapleProfile(terms: string[]) {
   return terms.length === 1 ? STAPLE_PROFILES[terms[0]] : undefined;
 }
 
+// Reject "Husets pr Kg / pr stykk" subdivision rows whose listed price is a
+// per-gram or per-item fraction (typically 0.10 kr), so they don't pollute search.
+const BAD_SUBDIVISION_NAME = /\b(pr\.?\s*(kg|stk|stykk))\b|\bhusets\b/i;
+
+function isBogusSubdivisionRow(product: MenyProduct): boolean {
+  if (product.current_price == null) return false;
+  if (product.current_price >= 5) return false;
+  return BAD_SUBDIVISION_NAME.test(product.name);
+}
+
 function scoreProduct(product: MenyProduct, terms: string[]) {
+  if (isBogusSubdivisionRow(product)) return -1;
+
   const name = normalizeSearchText(product.name);
+  const nameDense = name.replace(/\s+/g, '');
   const brand = normalizeSearchText(product.brand ?? '');
   const vendorUrl = normalizeSearchText(product.vendor_url ?? '');
   const campaignText = normalizeSearchText(product.campaign_text ?? '');
@@ -214,7 +227,11 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
   for (const term of terms) {
     const m = matchInfo(term);
     const strongMatch = m.exactWord || m.prefixWord || m.suffixWord || m.inVendor;
-    const matched = strongMatch || m.containsWord || m.brandPrefix;
+    // Hyphen-bridge: "kroneis" matches "krone is" / "krone-is" via the
+    // separator-stripped name. Acts like a contains-match, counts as matched.
+    const denseMatch =
+      !strongMatch && term.length >= 4 && nameDense.includes(term);
+    const matched = strongMatch || m.containsWord || m.brandPrefix || denseMatch;
     if (!matched) primaryMatched = false;
     if (matched) matchedTerms += 1;
     if (strongMatch) strongMatchedTerms += 1;
@@ -230,6 +247,7 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
     if (m.inCampaign) score += 75;
     if (m.inVendor) score += 60;
     if (m.containsWord) score += term.length <= 3 ? 8 : 20;
+    if (denseMatch) score += 90;
   }
 
   let stapleMatched = primaryMatched;

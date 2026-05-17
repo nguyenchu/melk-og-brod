@@ -512,6 +512,8 @@ const CartRow = memo(function CartRow({
   const value = draftQuantity ?? String(item.quantity);
   const lineTotal = getLineTotal(item);
   const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.price, ean: item.ean });
+  const favorites = useFavorites();
+  const starred = !!item.ean && favorites.some((f) => f.ean === item.ean);
 
   function commit() {
     if (draftQuantity == null) return;
@@ -593,6 +595,25 @@ const CartRow = memo(function CartRow({
                 <Ionicons name="add" size={16} color="#444" />
               </Pressable>
             </View>
+            {item.ean ? (
+              <Pressable
+                onPress={() =>
+                  toggleFavorite({
+                    ean: item.ean!,
+                    name: item.name,
+                    image_url: item.image_url,
+                    price: item.price,
+                  })
+                }
+                hitSlop={8}
+                style={styles.removeButton}>
+                <Ionicons
+                  name={starred ? 'star' : 'star-outline'}
+                  size={18}
+                  color={starred ? '#F5A623' : '#bbb'}
+                />
+              </Pressable>
+            ) : null}
             <Pressable onPress={() => onRemove(item.id)} hitSlop={10} style={styles.removeButton}>
               <Ionicons name="trash-outline" size={18} color="#999" />
             </Pressable>
