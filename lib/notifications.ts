@@ -3,7 +3,6 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { hasSupabaseConfig, requireSupabase } from './supabase';
 
 const TOKEN_KEY = 'push.token.v1';
 const PERMISSION_ASKED_KEY = 'push.permission.asked.v1';
@@ -52,24 +51,10 @@ export async function ensurePushToken(): Promise<string | null> {
 }
 
 /**
- * Upsert (token, favorite_eans) to push_tokens. Best-effort; failures are
- * swallowed so favoriting never blocks on network.
+ * Parkert: med statiske JSON-filer finnes ingen skrivbar backend for push-tokens.
+ * Favoritter lagres lokalt på enheten. For å aktivere push igjen trengs et lite
+ * skrivbart endepunkt (token + favoritt-EAN-er) som en sender kan lese.
  */
-export async function syncFavoritesToServer(favoriteEans: string[]): Promise<void> {
-  if (!hasSupabaseConfig()) return;
-  const token = await ensurePushToken();
-  if (!token) return;
-  try {
-    const supabase = requireSupabase();
-    await supabase.from('push_tokens').upsert(
-      {
-        token,
-        favorite_eans: favoriteEans,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'token' },
-    );
-  } catch {
-    // ignore
-  }
+export async function syncFavoritesToServer(_favoriteEans: string[]): Promise<void> {
+  // no-op
 }

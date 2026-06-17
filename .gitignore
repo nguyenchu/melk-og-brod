@@ -33,12 +33,8 @@ yarn-error.*
 # local env files
 .env*.local
 
-# python
-.venv/
-__pycache__/
-*.pyc
-scripts/deal-finder/deals.db
-scripts/deal-finder/logs/
+# kassal-sync (generert output)
+scripts/kassal-sync/out/
 
 # typescript
 *.tsbuildinfo

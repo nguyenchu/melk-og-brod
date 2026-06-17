@@ -26,7 +26,7 @@ import {
 import { computeCartTotals, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
-import { hasSupabaseConfig } from '@/lib/supabase';
+import { hasDataConfig } from '@/lib/catalog';
 import { formatUnitPriceLabel } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
 
@@ -58,7 +58,7 @@ export default function CartScreen() {
       setSearching(false);
       return;
     }
-    if (!hasSupabaseConfig()) {
+    if (!hasDataConfig()) {
       setSearching(false);
       return;
     }
@@ -137,7 +137,7 @@ export default function CartScreen() {
     [items],
   );
   useEffect(() => {
-    if (!hasSupabaseConfig() || cartEansKey.length === 0) {
+    if (!hasDataConfig() || cartEansKey.length === 0) {
       setDiscontinuedEans(new Set());
       return;
     }

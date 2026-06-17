@@ -1,10 +1,10 @@
 {
-  "name": "melk-og-brod",
+  "name": "matkupp",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
-    "find-deals": "scripts/deal-finder/.venv/bin/python scripts/deal-finder/find_deals.py",
+    "sync": "npm --prefix scripts/kassal-sync install && npm --prefix scripts/kassal-sync run sync",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

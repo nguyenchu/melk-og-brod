@@ -2,8 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
-import { hasSupabaseConfig, requireSupabase } from './supabase';
-import type { CartItem } from './types';
+import { getCatalog, hasDataConfig } from './catalog';
+import type { CartItem, MenyProduct } from './types';
 
 function haptic(style: Haptics.ImpactFeedbackStyle | 'selection') {
   if (style === 'selection') {
@@ -70,59 +70,47 @@ function uid() {
 }
 
 async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
-  if (!hasSupabaseConfig()) return items;
+  if (!hasDataConfig()) return items;
 
-  const eansToRefresh = items.filter((item) => item.ean).map((item) => item.ean as string);
-  const missingProductDataByName = items
-    .filter((item) => !item.ean && (!item.image_url || !item.campaign_text))
-    .map((item) => item.name.trim())
-    .filter(Boolean);
+  const eansToRefresh = new Set(items.filter((item) => item.ean).map((item) => item.ean as string));
+  const missingNames = new Set(
+    items
+      .filter((item) => !item.ean && (!item.image_url || !item.campaign_text))
+      .map((item) => item.name.trim().toLowerCase())
+      .filter(Boolean),
+  );
 
-  if (eansToRefresh.length === 0 && missingProductDataByName.length === 0) return items;
+  if (eansToRefresh.size === 0 && missingNames.size === 0) return items;
 
-  const supabase = requireSupabase();
-  const eanLookup = eansToRefresh.length
-    ? await supabase
-        .from('meny_products')
-        .select('ean,image_url,campaign_text,current_price,drop_pct')
-        .in('ean', eansToRefresh)
-    : { data: [], error: null };
-
-  const nameLookup = missingProductDataByName.length
-    ? await supabase
-        .from('meny_products')
-        .select('name,image_url,campaign_text')
-        .in('name', missingProductDataByName)
-    : { data: [], error: null };
-
-  if (eanLookup.error && nameLookup.error) return items;
+  let catalog: MenyProduct[];
+  try {
+    catalog = await getCatalog();
+  } catch {
+    return items;
+  }
 
   const liveByEan = new Map(
-    (eanLookup.data ?? [])
-      .filter((row) => row.ean)
-      .map((row) => [
-        row.ean as string,
+    catalog
+      .filter((p) => p.ean && eansToRefresh.has(p.ean))
+      .map((p) => [
+        p.ean,
         {
-          image_url: (row.image_url as string | null) ?? null,
-          campaign_text: isLikelyCampaignText(row.campaign_text as string | null | undefined)
-            ? (row.campaign_text as string)
-            : null,
-          current_price: (row.current_price as number | null) ?? null,
-          drop_pct: (row.drop_pct as number | null) ?? null,
+          image_url: p.image_url,
+          campaign_text: isLikelyCampaignText(p.campaign_text) ? p.campaign_text : null,
+          current_price: p.current_price,
+          drop_pct: p.drop_pct,
         },
       ]),
   );
 
   const productByName = new Map(
-    (nameLookup.data ?? [])
-      .filter((row) => row.name)
-      .map((row) => [
-        String(row.name).trim().toLowerCase(),
+    catalog
+      .filter((p) => missingNames.has(p.name.trim().toLowerCase()))
+      .map((p) => [
+        p.name.trim().toLowerCase(),
         {
-          image_url: (row.image_url as string | null) ?? null,
-          campaign_text: isLikelyCampaignText(row.campaign_text as string | null | undefined)
-            ? (row.campaign_text as string)
-            : null,
+          image_url: p.image_url,
+          campaign_text: isLikelyCampaignText(p.campaign_text) ? p.campaign_text : null,
         },
       ]),
   );

@@ -1,0 +1,20 @@
+{
+  "name": "matkupp-kassal-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Henter dagligvarepriser fra Kassal.app (alle kjeder) og pusher tilbud til Supabase.",
+  "scripts": {
+    "sync": "tsx sync.ts",
+    "dry": "DRY_RUN=1 tsx sync.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

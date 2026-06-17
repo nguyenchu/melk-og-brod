@@ -1,0 +1,50 @@
+name: kassal-sync
+
+on:
+  schedule:
+    # 04:05 UTC ≈ 06:05 Oslo (sommer). Kassal oppdaterer priser om morgenen.
+    - cron: '5 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: kassal-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install sync-avhengigheter
+        working-directory: scripts/kassal-sync
+        run: npm install
+
+      - name: Kjør Kassal-sync → products.json
+        working-directory: scripts/kassal-sync
+        env:
+          KASSAL_API_TOKEN: ${{ secrets.KASSAL_API_TOKEN }}
+          OUT_DIR: out
+        run: npx tsx sync.ts
+
+      # Last opp products.json dit appen leser den (EXPO_PUBLIC_DATA_URL).
+      # Krever fire secrets: DEPLOY_SSH_KEY, DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH.
+      # (Alternativ uten server: commit fila til en data-branch og server via CDN.)
+      - name: Last opp til server (rsync over SSH)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          rsync -avz scripts/kassal-sync/out/products.json \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/products.json"

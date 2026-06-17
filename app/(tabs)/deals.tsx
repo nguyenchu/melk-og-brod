@@ -18,7 +18,7 @@ import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
-import { hasSupabaseConfig } from '@/lib/supabase';
+import { hasDataConfig } from '@/lib/catalog';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
 
@@ -52,20 +52,11 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
   return !normalizedName.includes(normalizedBrand);
 }
 
-type Filter = 'alle' | 'kampanje' | 'prisfall';
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'alle', label: 'Alle' },
-  { key: 'kampanje', label: 'Kampanje' },
-  { key: 'prisfall', label: 'Prisfall' },
-];
-
 export default function DealsScreen() {
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
-  const [filter, setFilter] = useState<Filter>('alle');
   const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
   const { items: cartItems } = useCart();
 
@@ -79,7 +70,7 @@ export default function DealsScreen() {
   }, [cartItems]);
 
   const load = useCallback(async () => {
-    if (!hasSupabaseConfig()) {
+    if (!hasDataConfig()) {
       setError('Tilbud er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
       return;
     }
@@ -104,13 +95,6 @@ export default function DealsScreen() {
   useEffect(() => {
     load();
   }, [load]);
-
-  const filteredDeals = useMemo(() => {
-    if (!deals) return null;
-    if (filter === 'kampanje') return deals.filter((d) => d.price_source === 'meny');
-    if (filter === 'prisfall') return deals.filter((d) => d.price_source !== 'meny');
-    return deals;
-  }, [deals, filter]);
 
   const latestComputedAt = deals?.[0]?.computed_at ?? null;
 
@@ -137,7 +121,7 @@ export default function DealsScreen() {
     [cartByEan, handleSelect],
   );
 
-  if (filteredDeals === null && !error) {
+  if (deals === null && !error) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -148,7 +132,7 @@ export default function DealsScreen() {
   return (
     <>
     <FlatList
-      data={filteredDeals ?? []}
+      data={deals ?? []}
       keyExtractor={(d) => d.ean}
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -165,7 +149,7 @@ export default function DealsScreen() {
             </View>
           ) : (
             <View style={styles.headerBlock}>
-              <Text style={styles.headerSub}>Kampanjer og prisfall fra Meny</Text>
+              <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
               {fromCache ? (
                 <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
               ) : latestComputedAt ? (
@@ -173,19 +157,6 @@ export default function DealsScreen() {
               ) : null}
             </View>
           )}
-          <View style={styles.filterRow}>
-            {FILTERS.map(({ key, label }) => (
-              <Pressable
-                key={key}
-                onPress={() => setFilter(key)}
-                style={[styles.filterChip, filter === key && styles.filterChipActive]}
-              >
-                <Text style={[styles.filterChipText, filter === key && styles.filterChipTextActive]}>
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
         </View>
       }
       ListEmptyComponent={
@@ -250,10 +221,8 @@ const DealRow = memo(function DealRow({
   const drop = item.drop_pct ?? 0;
   const approximate = isApproximateWeight(item.name, item.ean);
   const currentPriceLabel = formatDisplayPrice(item.current_price, approximate);
-  const isMenyPromo = item.price_source === 'meny';
-  const beforePriceValue = isMenyPromo ? item.original_price : item.median_30d;
-  const beforePriceLabel = formatDisplayPrice(beforePriceValue, approximate);
-  const beforePricePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
+  const beforePriceLabel = formatDisplayPrice(item.median_30d, approximate);
+  const beforePricePrefix = 'vanligvis';
   const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
   const showBrand = shouldShowBrand(item.name, item.brand);
 
@@ -290,12 +259,12 @@ const DealRow = memo(function DealRow({
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
       </View>
       <View style={styles.right}>
-        <View style={[styles.dropBadge, !isMenyPromo && styles.dropBadgeMedian]}>
-          <Text style={[styles.dropText, !isMenyPromo && styles.dropTextMedian]}>−{drop.toFixed(0)}%</Text>
+        <View style={styles.dropBadge}>
+          <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
         </View>
-        <Text style={[styles.sourceLabel, isMenyPromo ? styles.sourceLabelMeny : styles.sourceLabelMedian]}>
-          {isMenyPromo ? 'Kampanje' : 'Prisfall'}
-        </Text>
+        {item.chain ? (
+          <Text style={styles.chainLabel} numberOfLines={1}>{item.chain}</Text>
+        ) : null}
         {inCart ? (
           <View style={styles.quantityControl}>
             <Pressable onPress={onDecrement} hitSlop={8} style={styles.quantityButton}>
@@ -328,8 +297,8 @@ const DealRow = memo(function DealRow({
 });
 
 function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () => void }) {
-  const isMenyPromo = deal.price_source === 'meny';
   const history = deal.price_history ?? [];
+  const stores = (deal.stores ?? []).filter((s) => s.price != null);
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose} />
@@ -342,12 +311,32 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
             <Text style={styles.modalPrice}>
               {deal.current_price != null ? `${deal.current_price.toFixed(2)} kr` : '—'}
             </Text>
-            <View style={[styles.dropBadge, !isMenyPromo && styles.dropBadgeMedian]}>
-              <Text style={[styles.dropText, !isMenyPromo && styles.dropTextMedian]}>
-                −{(deal.drop_pct ?? 0).toFixed(0)}%
-              </Text>
-            </View>
+            {deal.chain ? <Text style={styles.modalChain}>@ {deal.chain}</Text> : null}
+            {deal.drop_pct != null ? (
+              <View style={styles.dropBadge}>
+                <Text style={styles.dropText}>−{deal.drop_pct.toFixed(0)}%</Text>
+              </View>
+            ) : null}
           </View>
+          {stores.length > 0 ? (
+            <View style={styles.storeBlock}>
+              <Text style={styles.storeBlockTitle}>Pris i butikkene</Text>
+              {stores.map((s, i) => (
+                <View key={s.code ?? s.chain ?? String(i)} style={styles.storeRow}>
+                  <Text style={styles.storeName} numberOfLines={1}>
+                    {i === 0 ? '🏆 ' : ''}
+                    {s.chain ?? 'Ukjent butikk'}
+                  </Text>
+                  {s.drop_pct != null ? (
+                    <Text style={styles.storeDrop}>−{s.drop_pct.toFixed(0)}%</Text>
+                  ) : null}
+                  <Text style={[styles.storePrice, i === 0 && styles.storePriceBest]}>
+                    {s.price.toFixed(2)} kr
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
           {history.length >= 2 ? (
             <PriceChart points={history} currentPrice={deal.current_price} />
           ) : (
@@ -590,6 +579,7 @@ const styles = StyleSheet.create({
   sourceLabel: { fontSize: 10, fontWeight: '600' },
   sourceLabelMeny: { color: '#2B6A57' },
   sourceLabelMedian: { color: '#999' },
+  chainLabel: { fontSize: 11, fontWeight: '700', color: '#2B6A57', maxWidth: 80 },
   addBtn: {
     backgroundColor: '#E10A0A',
     width: 36,
@@ -646,6 +636,21 @@ const styles = StyleSheet.create({
   modalBrand: { fontSize: 13, color: '#888' },
   modalPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   modalPrice: { fontSize: 22, fontWeight: '700', color: '#E10A0A' },
+  modalChain: { fontSize: 14, fontWeight: '600', color: '#2B6A57' },
+  storeBlock: { marginTop: 16, gap: 2 },
+  storeBlockTitle: { fontSize: 13, fontWeight: '700', color: '#444', marginBottom: 4 },
+  storeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  storeName: { flex: 1, fontSize: 14, color: '#222' },
+  storeDrop: { fontSize: 12, fontWeight: '700', color: '#A85C00' },
+  storePrice: { fontSize: 14, fontWeight: '600', color: '#333', minWidth: 64, textAlign: 'right' },
+  storePriceBest: { color: '#0B6B3A', fontWeight: '800' },
   noChartText: { color: '#aaa', fontSize: 13, padding: 24, textAlign: 'center' },
   chartWrap: { marginTop: 12 },
   chartLabel: { fontSize: 12, color: '#888', marginBottom: 6 },

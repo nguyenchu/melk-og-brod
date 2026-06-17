@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { requireSupabase } from './supabase';
+import { getCatalog } from './catalog';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
@@ -30,26 +30,6 @@ export function isActiveDealProduct(
 }
 
 const MAX_DEAL_AGE_HOURS = 36;
-const SEARCH_SYNONYMS: Record<string, string[]> = {
-  avocado: ['avokado'],
-  avokado: ['avocado'],
-  speltbrod: ['speltbrod'],
-  cocla: ['coca', 'cola'],
-  coca: ['coca', 'cola'],
-  cola: ['coca', 'cola'],
-  sjokoladekake: ['sjokoladekake', 'kake', 'sjokolade'],
-  fiskeburger: ['lofotburger', 'lofoten', 'burger'],
-  lofoten: ['lofoten', 'lofotburger', 'fiskeburger'],
-  lofotburger: ['lofoten', 'fiskeburger'],
-  nespresso: ['nespresso', 'kapsel', 'kaffekapsel'],
-};
-
-// Phrase-level synonyms: if ALL words in the key phrase appear in the query, the
-// values are added to the expanded term set. Used for compound brands like
-// "dolce gusto" where each word alone would be too noisy.
-const PHRASE_SYNONYMS: { phrase: string[]; expansions: string[] }[] = [
-  { phrase: ['dolce', 'gusto'], expansions: ['kapsel', 'kaffekapsel'] },
-];
 const STAPLE_PROFILES: Record<
   string,
   {
@@ -298,36 +278,6 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
   return score;
 }
 
-function expandSearchTerms(terms: string[]) {
-  const expanded = new Set(terms);
-  const termSet = new Set(terms);
-  for (const { phrase, expansions } of PHRASE_SYNONYMS) {
-    if (phrase.every((word) => termSet.has(word))) {
-      for (const extra of expansions) {
-        expanded.add(normalizeSearchText(extra));
-      }
-    }
-  }
-  for (const term of terms) {
-    for (const synonym of SEARCH_SYNONYMS[term] ?? []) {
-      expanded.add(normalizeSearchText(synonym));
-    }
-    for (const extra of STAPLE_PROFILES[term]?.include ?? []) {
-      expanded.add(extra);
-    }
-    if (term.endsWith('er') && term.length > 4) {
-      expanded.add(term.slice(0, -2));
-    }
-    if (term.endsWith('e') && term.length > 4) {
-      expanded.add(`${term}r`);
-    }
-    if (term.endsWith('ie')) {
-      expanded.add(`${term}r`);
-    }
-  }
-  return [...expanded];
-}
-
 function tidyDisplayName(name: string): string {
   return name
     .replace(/[\s.]+$/, '')
@@ -379,36 +329,18 @@ function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
 export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>> {
   const unique = [...new Set(eans.filter(Boolean))];
   if (unique.length === 0) return new Set();
-  const supabase = requireSupabase();
-  const present = new Set<string>();
-  const BATCH = 200;
-  for (let i = 0; i < unique.length; i += BATCH) {
-    const chunk = unique.slice(i, i + BATCH);
-    const { data, error } = await supabase
-      .from('meny_products')
-      .select('ean')
-      .in('ean', chunk);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (row.ean) present.add(row.ean);
-    }
-  }
+  const catalog = await getCatalog();
+  const present = new Set(catalog.map((p) => p.ean));
   return new Set(unique.filter((ean) => !present.has(ean)));
 }
 
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
-  const supabase = requireSupabase();
-  const freshestAllowed = new Date(Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000).toISOString();
-  const candidateLimit = Math.max(limit * 8, 1200);
-  const { data, error } = await supabase
-    .from('meny_products')
-    .select('*')
-    .gte('computed_at', freshestAllowed)
-    .not('vendor_url', 'ilike', '%kioskvarer%')
-    .or(`drop_pct.gte.${minDropPct},price_source.eq.meny,campaign_text.not.is.null`)
-    .limit(candidateLimit);
-  if (error) throw error;
-  const products = ((data ?? []) as MenyProduct[]).filter((product) => isActiveDealProduct(product, minDropPct));
+  const catalog = await getCatalog();
+  const freshestAllowed = Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000;
+  const products = catalog.filter((product) => {
+    if (product.computed_at && new Date(product.computed_at).getTime() < freshestAllowed) return false;
+    return isActiveDealProduct(product, minDropPct);
+  });
   const sorted = products.sort((a, b) => {
     const aIsCampaign = hasCampaignSignal(a) ? 1 : 0;
     const bIsCampaign = hasCampaignSignal(b) ? 1 : 0;
@@ -422,69 +354,20 @@ export async function searchProducts(
   query: string,
   options?: number | { limit?: number; dealsOnly?: boolean },
 ): Promise<MenyProduct[]> {
-  const supabase = requireSupabase();
   const normalizedOptions = typeof options === 'number' ? { limit: options } : options ?? {};
   const limit = normalizedOptions.limit ?? DEFAULT_SEARCH_LIMIT;
   const dealsOnly = normalizedOptions.dealsOnly ?? false;
   const q = query.trim();
   if (q.length < 2) return [];
-  const rawTerms = q
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter(Boolean);
   const terms = normalizeSearchText(q).split(/\s+/).filter(Boolean);
   if (terms.length === 0) return [];
-  const expandedTerms = expandSearchTerms(terms);
-  const stapleProfile = getStapleProfile(terms);
-  const queryTerms = stapleProfile ? expandedTerms : expandedTerms.slice(0, 4);
-  const dbTerms = [...new Set([...rawTerms, ...queryTerms])]
-    .filter(Boolean);
-  const clauses = dbTerms
-    .flatMap((term) => {
-      const escaped = term.replace(/[%_]/g, (m) => `\\${m}`);
-      return [
-        `name.ilike.%${escaped}%`,
-        `brand.ilike.%${escaped}%`,
-        `campaign_text.ilike.%${escaped}%`,
-        `vendor_url.ilike.%${escaped}%`,
-      ];
-    })
-    .join(',');
-  const candidateLimit = dealsOnly
-    ? Math.max(limit * 28, 1000)
-    : stapleProfile
-      ? Math.max(limit * 24, 1500)
-      : Math.max(limit * 24, 900);
-  let queryBuilder = supabase.from('meny_products').select('*').or(clauses);
-  if (dealsOnly) {
-    queryBuilder = queryBuilder.or(
-      `drop_pct.gte.${ACTIVE_DEAL_DROP_PCT},price_source.eq.meny,campaign_text.not.is.null`,
-    );
-  }
-  const { data, error } = await queryBuilder.limit(candidateLimit);
-  if (error) throw error;
-  let pool = (data ?? []) as MenyProduct[];
 
-  // Fallback: if our keyword index missed the query (or only matched a few),
-  // ask Meny's own search API for EANs and pull those rows from our DB. This
-  // gives us Meny's smarter relevance (synonyms, brand grouping, etc.) without
-  // maintaining an exhaustive synonym table on our side.
-  if (!dealsOnly && pool.length < MIN_RESULTS_BEFORE_LIVE_FALLBACK) {
-    const liveEans = await fetchMenyLiveEans(q);
-    const known = new Set(pool.map((p) => p.ean));
-    const missing = liveEans.filter((ean) => !known.has(ean));
-    if (missing.length > 0) {
-      const { data: extraData } = await supabase
-        .from('meny_products')
-        .select('*')
-        .in('ean', missing);
-      if (extraData) pool = pool.concat(extraData as MenyProduct[]);
-    }
-  }
+  const catalog = await getCatalog();
+  const pool = dealsOnly
+    ? catalog.filter((product) => isActiveDealProduct(product, ACTIVE_DEAL_DROP_PCT))
+    : catalog;
 
   const ranked = pool
-    .filter((product) => (dealsOnly ? isActiveDealProduct(product, ACTIVE_DEAL_DROP_PCT) : true))
     .map((product) => ({ product, score: scoreProduct(product, terms) }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => {
@@ -502,34 +385,4 @@ export async function searchProducts(
     .map((entry) => entry.product);
   const finalLimit = dealsOnly ? Math.max(limit, DEAL_SEARCH_LIMIT) : limit;
   return disambiguateDisplayNames(dedupeProducts(ranked).slice(0, finalLimit));
-}
-
-const MIN_RESULTS_BEFORE_LIVE_FALLBACK = 5;
-const MENY_LIVE_SEARCH_URL = 'https://platform-rest-prod.ngdata.no/api/products/1300/0/';
-
-async function fetchMenyLiveEans(query: string): Promise<string[]> {
-  try {
-    const url = `${MENY_LIVE_SEARCH_URL}?${new URLSearchParams({
-      search: query,
-      page_size: '30',
-      full_response: 'true',
-      fieldset: 'maximal',
-      showNotForSale: 'false',
-    })}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return [];
-    const payload = await res.json();
-    const hits = payload?.hits?.hits ?? [];
-    return hits
-      .map((hit: any) => hit?._source?.ean)
-      .filter((ean: unknown): ean is string => typeof ean === 'string' && ean.length > 0);
-  } catch {
-    return [];
-  }
 }
