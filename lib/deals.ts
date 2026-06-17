@@ -9,7 +9,13 @@ const DEAL_SEARCH_LIMIT = 80;
 const ACTIVE_DEAL_DROP_PCT = 5;
 
 export async function saveCachedDeals(deals: MenyProduct[]) {
-  await AsyncStorage.setItem(DEALS_CACHE_KEY, JSON.stringify(deals));
+  // Best-effort: tilbudslista kan sprenge AsyncStorage/localStorage-grensa
+  // (~5–6 MB, særlig på web). En feilet skriving skal aldri velte appen.
+  try {
+    await AsyncStorage.setItem(DEALS_CACHE_KEY, JSON.stringify(deals));
+  } catch {
+    // ignorer – cache er bare en bonus for offline-visning
+  }
 }
 
 export async function loadCachedDeals(): Promise<MenyProduct[] | null> {

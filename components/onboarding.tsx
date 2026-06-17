@@ -25,8 +25,8 @@ type Slide = {
 const SLIDES: Slide[] = [
   {
     icon: 'pricetag',
-    title: 'Beste tilbud fra Meny',
-    body: 'Vi henter Menys kampanjer og prisfall daglig. Filtrer på kampanje, prisfall, eller se alt.',
+    title: 'Beste tilbud fra alle kjeder',
+    body: 'Vi henter kampanjer og prisfall fra alle kjeder hver dag. Filtrer på kjede, eller se alt.',
   },
   {
     icon: 'cart',

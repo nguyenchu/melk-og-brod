@@ -36,7 +36,7 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Section title="Om appen">
         <Row label="Versjon" value={`${version} (${buildNumber})`} />
-        <Row label="Datakilde" value="Meny.no via offentlig API" />
+        <Row label="Datakilde" value="Kassal.app (alle kjeder)" />
       </Section>
 
       <Section title="Personvern">
