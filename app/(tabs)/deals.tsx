@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,6 +22,9 @@ import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
+
+const CHAIN_FILTER_KEY = 'deals.chainFilter.v1';
+const ALL_CHAINS = 'Alle';
 
 function formatComputedAt(value: string) {
   const date = new Date(value);
@@ -58,7 +62,34 @@ export default function DealsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
+  const [chainFilter, setChainFilter] = useState<string>(ALL_CHAINS);
   const { items: cartItems } = useCart();
+
+  useEffect(() => {
+    AsyncStorage.getItem(CHAIN_FILTER_KEY)
+      .then((v) => {
+        if (v) setChainFilter(v);
+      })
+      .catch(() => {});
+  }, []);
+
+  const selectChain = useCallback((chain: string) => {
+    setChainFilter(chain);
+    AsyncStorage.setItem(CHAIN_FILTER_KEY, chain).catch(() => {});
+  }, []);
+
+  const chains = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of deals ?? []) {
+      if (d.chain) set.add(d.chain);
+    }
+    return [ALL_CHAINS, ...Array.from(set).sort((a, b) => a.localeCompare(b, 'nb'))];
+  }, [deals]);
+
+  const filteredDeals = useMemo(() => {
+    if (chainFilter === ALL_CHAINS) return deals ?? [];
+    return (deals ?? []).filter((d) => d.chain === chainFilter);
+  }, [deals, chainFilter]);
 
   const cartByEan = useMemo(() => {
     const map = new Map<string, { id: string; quantity: number }>();
@@ -132,7 +163,7 @@ export default function DealsScreen() {
   return (
     <>
     <FlatList
-      data={deals ?? []}
+      data={filteredDeals}
       keyExtractor={(d) => d.ean}
       contentContainerStyle={styles.list}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -148,14 +179,38 @@ export default function DealsScreen() {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : (
-            <View style={styles.headerBlock}>
-              <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
-              {fromCache ? (
-                <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
-              ) : latestComputedAt ? (
-                <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+            <>
+              <View style={styles.headerBlock}>
+                <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
+                {fromCache ? (
+                  <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
+                ) : latestComputedAt ? (
+                  <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+                ) : null}
+              </View>
+              {chains.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterRow}
+                >
+                  {chains.map((chain) => {
+                    const active = chain === chainFilter;
+                    return (
+                      <Pressable
+                        key={chain}
+                        onPress={() => selectChain(chain)}
+                        style={[styles.filterChip, active && styles.filterChipActive]}
+                      >
+                        <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                          {chain}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               ) : null}
-            </View>
+            </>
           )}
         </View>
       }
