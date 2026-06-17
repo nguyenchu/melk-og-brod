@@ -177,7 +177,9 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     drop_pct: headline.offer.drop_pct,
     campaign_text: null,
     stores,
-    price_history: history.length ? history : null,
+    // Prishistorikk lagres bare for tilbud (kun de viser graf), så fila holdes liten
+    // nok til at appen kan cache den (AsyncStorage/localStorage ~5–6 MB).
+    price_history: headline.offer.drop_pct != null && history.length ? history : null,
     computed_at: new Date().toISOString(),
     cheapest_price: cheapest.price,
     cheapest_chain: cheapest.chain,

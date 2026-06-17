@@ -1,9 +1,9 @@
 name: kassal-sync
 
 on:
-  schedule:
-    # 04:05 UTC ≈ 06:05 Oslo (sommer). Kassal oppdaterer priser om morgenen.
-    - cron: '5 4 * * *'
+  # Ingen schedule – for å unngå daglig Actions-forbruk (minutter + cache-storage).
+  # Anbefalt: kjør nattlig sync som cron på din egen server (se README).
+  # Denne workflowen kan fortsatt trigges manuelt ved behov.
   workflow_dispatch:
 
 concurrency:

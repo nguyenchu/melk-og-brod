@@ -19,7 +19,16 @@ npm install
 KASSAL_API_TOKEN=... OUT_DIR=./out npx tsx sync.ts   # → out/products.json
 # DRY_RUN=1 henter+regner uten å skrive · MAX_TERMS=8 for rask test
 ```
-Last `out/products.json` opp dit appen leser den. Nattlig kjøring: `.github/workflows/kassal-sync.yml`.
+Last `out/products.json` opp dit appen leser den.
+
+**Nattlig kjøring – anbefalt som cron på egen server** (null GitHub Actions-kostnad). Skriv
+rett til web-roten, så slipper du opplasting:
+```cron
+# /etc/cron.d/matkupp  (token i scripts/kassal-sync/.env på serveren)
+5 4 * * *  www-data  cd /srv/melk-og-brod/scripts/kassal-sync && OUT_DIR=/var/www/matkupp /usr/bin/npm run sync >> /var/log/matkupp-sync.log 2>&1
+```
+`.github/workflows/kassal-sync.yml` finnes også, men kjører **kun manuelt** (workflow_dispatch)
+for å unngå daglig Actions-forbruk.
 
 ## Kjør appen
 ```bash

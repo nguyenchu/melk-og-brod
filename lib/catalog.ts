@@ -55,7 +55,13 @@ async function loadCatalog(forceNetwork: boolean): Promise<MenyProduct[]> {
   try {
     const payload = await fetchFresh();
     if (payload) {
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ fetched_at: Date.now(), payload }));
+      // Cache er best-effort: store kataloger kan sprenge AsyncStorage/localStorage-grensa
+      // (~5–6 MB). En feilet skriving skal aldri hindre at vi bruker de ferske dataene.
+      try {
+        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ fetched_at: Date.now(), payload }));
+      } catch {
+        // ignorer – fortsett med ferske data i minnet
+      }
       return adopt(payload);
     }
   } catch (e) {
