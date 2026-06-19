@@ -339,9 +339,20 @@ export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>
   return new Set(unique.filter((ean) => !present.has(ean)));
 }
 
+const EXCLUDED_CHAINS = new Set([
+  'Engrosnett',
+  'Havaristen',
+  'Holdbart',
+  'FastCandy.no',
+  'Slowly.no',
+  'Leske.no',
+]);
+
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
   const catalog = await getCatalog();
-  const products = catalog.filter((product) => isActiveDealProduct(product, minDropPct));
+  const products = catalog.filter(
+    (product) => !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
+  );
   const sorted = products.sort((a, b) => {
     const aIsCampaign = hasCampaignSignal(a) ? 1 : 0;
     const bIsCampaign = hasCampaignSignal(b) ? 1 : 0;
