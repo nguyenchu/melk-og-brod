@@ -35,7 +35,6 @@ export function isActiveDealProduct(
   return hasCampaignSignal(product) || (product.drop_pct ?? 0) >= minDropPct;
 }
 
-const MAX_DEAL_AGE_HOURS = 36;
 const STAPLE_PROFILES: Record<
   string,
   {
@@ -342,11 +341,7 @@ export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>
 
 export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
   const catalog = await getCatalog();
-  const freshestAllowed = Date.now() - MAX_DEAL_AGE_HOURS * 60 * 60 * 1000;
-  const products = catalog.filter((product) => {
-    if (product.computed_at && new Date(product.computed_at).getTime() < freshestAllowed) return false;
-    return isActiveDealProduct(product, minDropPct);
-  });
+  const products = catalog.filter((product) => isActiveDealProduct(product, minDropPct));
   const sorted = products.sort((a, b) => {
     const aIsCampaign = hasCampaignSignal(a) ? 1 : 0;
     const bIsCampaign = hasCampaignSignal(b) ? 1 : 0;
