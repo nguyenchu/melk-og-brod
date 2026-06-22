@@ -20,7 +20,7 @@ export type MenyProduct = {
   current_price: number | null; // tilbudsprisen (eller billigste hvis ingen tilbud)
   median_30d: number | null; // normalpris (median) for tilbudsbutikken
   original_price: number | null;
-  price_source: 'meny' | 'median' | null;
+  price_source: 'meny' | 'median' | 'tjek' | null;
   drop_pct: number | null;
   campaign_text: string | null;
   cheapest_price: number | null; // billigste nåpris på tvers av kjeder
@@ -28,6 +28,7 @@ export type MenyProduct = {
   stores: StoreOffer[] | null; // alle kjeder for prissammenligning
   computed_at: string;
   price_history: PricePoint[] | null;
+  valid_until?: string | null; // kun tjek: ukestilbudet utløper (ISO-dato)
 };
 
 export type CartItem = {

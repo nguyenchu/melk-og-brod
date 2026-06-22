@@ -46,6 +46,13 @@ function formatComputedAt(value: string) {
   return `Oppdatert for ${diffDays} d siden · ${absolute}`;
 }
 
+function formatValidUntil(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short' }).format(date);
+}
+
 function shouldShowBrand(name: string, brand: string | null | undefined) {
   if (!brand) return false;
 
@@ -274,10 +281,12 @@ const DealRow = memo(function DealRow({
   }
 
   const drop = item.drop_pct ?? 0;
+  const isWeekly = item.price_source === 'tjek';
   const approximate = isApproximateWeight(item.name, item.ean);
   const currentPriceLabel = formatDisplayPrice(item.current_price, approximate);
   const beforePriceLabel = formatDisplayPrice(item.median_30d, approximate);
-  const beforePricePrefix = 'vanligvis';
+  const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
+  const validUntilLabel = isWeekly ? formatValidUntil(item.valid_until) : null;
   const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
   const showBrand = shouldShowBrand(item.name, item.brand);
 
@@ -312,10 +321,15 @@ const DealRow = memo(function DealRow({
         {isLikelyCampaignText(item.campaign_text) ? <CampaignBadge text={item.campaign_text!} /> : null}
         {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
+        {validUntilLabel ? <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text> : null}
       </View>
       <View style={styles.right}>
         <View style={styles.dropBadge}>
-          <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
+          {drop > 0 ? (
+            <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
+          ) : (
+            <Text style={styles.dropText}>Tilbud</Text>
+          )}
         </View>
         {item.chain ? (
           <Text style={styles.chainLabel} numberOfLines={1}>{item.chain}</Text>
@@ -392,7 +406,12 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
               ))}
             </View>
           ) : null}
-          {history.length >= 2 ? (
+          {deal.price_source === 'tjek' ? (
+            <Text style={styles.validUntilModal}>
+              Ukestilbud fra kundeavisen
+              {formatValidUntil(deal.valid_until) ? ` · gjelder til ${formatValidUntil(deal.valid_until)}` : ''}
+            </Text>
+          ) : history.length >= 2 ? (
             <PriceChart points={history} currentPrice={deal.current_price} />
           ) : (
             <Text style={styles.noChartText}>Ikke nok prishistorikk ennå</Text>
@@ -621,6 +640,8 @@ const styles = StyleSheet.create({
   },
   approximate: { fontSize: 12, color: '#8b6b34', marginTop: 3 },
   unitPrice: { fontSize: 12, color: '#666', marginTop: 1 },
+  validUntil: { fontSize: 12, color: '#005B99', marginTop: 2, fontWeight: '600' },
+  validUntilModal: { fontSize: 13, color: '#005B99', fontWeight: '600', marginTop: 16 },
   right: { alignItems: 'center', gap: 6, minWidth: 84 },
   dropBadge: {
     backgroundColor: '#FFF1D6',

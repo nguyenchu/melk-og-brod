@@ -19,6 +19,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { searchProducts, type KassalSearchProduct, type KassalPricePoint } from './kassal.js';
 import { SEED_TERMS } from './seeds.js';
+import { fetchNorwegianCatalogs, fetchCatalogOffers, catalogChain, type TjekOffer } from './tjek.js';
 
 const OUT_DIR = process.env.OUT_DIR ?? './out'; // hvor products.json skrives
 const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
@@ -126,7 +127,7 @@ type Row = {
   current_price: number;
   median_30d: number | null;
   original_price: number | null;
-  price_source: 'median' | null;
+  price_source: 'median' | 'tjek' | null;
   drop_pct: number | null;
   campaign_text: string | null;
   stores: OutOffer[];
@@ -134,6 +135,7 @@ type Row = {
   computed_at: string;
   cheapest_price: number; // billigste nåpris på tvers av kjeder
   cheapest_chain: string | null;
+  valid_until: string | null; // kun tjek: når ukestilbudet utløper (run_till)
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -227,6 +229,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     computed_at: new Date().toISOString(),
     cheapest_price: cheapest.price,
     cheapest_chain: cheapest.chain,
+    valid_until: null,
   };
 }
 
@@ -257,6 +260,126 @@ async function collectRowsByEan(): Promise<Map<string, KassalSearchProduct[]>> {
   }
   console.log(`[sync] hentet ferdig: ${requests} søk, ${byEan.size} unike EAN`);
   return byEan;
+}
+
+// ---- Tjek / eTilbudsavis: ukentlige kundeavis-tilbud for kjedene Kassal mangler ----
+
+const SKIP_TJEK = process.env.SKIP_TJEK === '1' || process.env.SKIP_TJEK === 'true';
+
+// Kun rene dagligvare-kjeder. Eksakt match holder bygg/møbel/elektro ute
+// (f.eks. «Obs» = hypermarked tas med, «Obs! Bygg» ikke). Europris er bevisst
+// utelatt (vari-/lavprisvarehus, ikke dagligvare).
+const TJEK_GROCERY = new Set(
+  [
+    'kiwi',
+    'rema 1000',
+    'meny',
+    'spar',
+    'eurospar',
+    'joker',
+    'bunnpris',
+    'extra',
+    'obs',
+    'coop mega',
+    'coop prix',
+    'coop marked',
+    'coop extra',
+    'matkroken',
+    'jacobs',
+    'nærbutikken',
+  ],
+);
+
+// Tjek-overskrifter er ofte i VERSALER. Gjør dem til normal kasus så de ikke
+// roper i en liste der Kassal-navn er blandet kasus. Allerede blandede navn røres ikke.
+function prettyHeading(raw: string): string {
+  const letters = raw.replace(/[^a-zæøåA-ZÆØÅ]/g, '');
+  const uppers = (raw.match(/[A-ZÆØÅ]/g) ?? []).length;
+  const shouty = letters.length >= 4 && uppers / letters.length > 0.8;
+  const text = shouty
+    ? raw.toLowerCase().replace(/(^|[\s\-/(.])([a-zæøå])/g, (_, sep, ch) => sep + ch.toUpperCase())
+    : raw;
+  return text.replace(/\s{2,}/g, ' ').trim();
+}
+
+function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | null {
+  const price = num(offer.pricing?.price);
+  if (price == null || price <= 0 || price > 10_000) return null;
+  // Dropp utløpte tilbud ved bygging, så appen slipper utløpslogikk.
+  if (offer.run_till && new Date(offer.run_till).getTime() < now) return null;
+
+  const pre = num(offer.pricing?.pre_price);
+  let drop: number | null = null;
+  if (pre != null && pre > price) {
+    const pct = round2(((pre - price) / pre) * 100);
+    if (pct > 0 && pct < MAX_DROP_PCT) drop = pct;
+  }
+
+  // Bygg visningsnavn med størrelse, så enhetspris-parseren i appen får tall å gå på.
+  const size = offer.quantity?.size?.from;
+  const sym = offer.quantity?.unit?.symbol;
+  const sizePart = size && sym ? ` ${size} ${sym}` : '';
+  const name = (prettyHeading(offer.heading ?? '') + sizePart).trim();
+  if (!name) return null;
+
+  return {
+    ean: `tjek:${offer.id}`, // syntetisk id – tilbudsavis-tilbud har ingen EAN
+    name,
+    brand: null,
+    image_url: offer.images?.view ?? offer.images?.thumb ?? null,
+    vendor_url: null,
+    chain,
+    current_price: round2(price),
+    median_30d: pre != null ? round2(pre) : null,
+    original_price: pre != null ? round2(pre) : null,
+    price_source: 'tjek',
+    drop_pct: drop,
+    campaign_text: null,
+    stores: [],
+    price_history: null,
+    computed_at: new Date().toISOString(),
+    cheapest_price: round2(price),
+    cheapest_chain: chain,
+    valid_until: offer.run_till ?? null,
+  };
+}
+
+async function collectTjekRows(): Promise<Row[]> {
+  const catalogs = await fetchNorwegianCatalogs();
+  // Én katalog per kjede – den med flest tilbud. Flere byer gir regionale
+  // duplikat-kataloger for samme kjede; uten dette flommer lista av dubletter.
+  const bestByChain = new Map<string, { id: string; chain: string; count: number }>();
+  for (const c of catalogs) {
+    const chain = catalogChain(c);
+    if (!chain || !TJEK_GROCERY.has(chain.toLowerCase())) continue;
+    const count = c.offer_count ?? 0;
+    const prev = bestByChain.get(chain);
+    if (!prev || count > prev.count) bestByChain.set(chain, { id: c.id, chain, count });
+  }
+  console.log(`[tjek] ${catalogs.length} kataloger, ${bestByChain.size} dagligvare-kjeder`);
+
+  const now = Date.now();
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  for (const { id, chain } of bestByChain.values()) {
+    try {
+      const offers = await fetchCatalogOffers(id);
+      let added = 0;
+      for (const offer of offers) {
+        const row = tjekOfferToRow(offer, chain, now);
+        if (!row || seen.has(row.ean)) continue;
+        seen.add(row.ean);
+        rows.push(row);
+        added++;
+      }
+      console.log(`[tjek] ${chain}: ${added} tilbud (av ${offers.length})`);
+    } catch (e) {
+      console.error(`[tjek] ${chain} feilet: ${(e as Error).message}`);
+    }
+  }
+  const withDrop = rows.filter((r) => r.drop_pct != null).length;
+  console.log(`[tjek] ferdig: ${rows.length} tilbud (${withDrop} med før→nå-pris)`);
+  return rows;
 }
 
 function writeOutput(rows: Row[]) {
@@ -300,6 +423,17 @@ async function main() {
     const cheap = r.cheapest_chain && r.cheapest_price < r.current_price ? `, billigst ${r.cheapest_price}@${r.cheapest_chain}` : '';
     console.log(`  -${r.drop_pct}%  ${r.name}  ${r.current_price}kr @ ${r.chain}  (normal ${r.median_30d}, ${r.stores.length} butikker${cheap})`);
   }
+
+  // Tjek-tilbud (KIWI/REMA/Coop m.fl.) legges til på slutten – egen modell, uten EAN.
+  if (!SKIP_TJEK) {
+    try {
+      const tjekRows = await collectTjekRows();
+      rows.push(...tjekRows);
+    } catch (e) {
+      console.error(`[tjek] hopper over (feilet): ${(e as Error).message}`);
+    }
+  }
+  console.log(`[sync] totalt ${rows.length} rader (Kassal + Tjek)`);
 
   if (DRY_RUN) {
     console.log('[sync] DRY_RUN – hopper over filskriving');

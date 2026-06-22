@@ -25,7 +25,13 @@ export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
 }
 
 function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_source'>) {
-  return product.price_source === 'meny' || isLikelyCampaignText(product.campaign_text);
+  // 'tjek' = ukentlig kundeavis-tilbud (KIWI/REMA/Coop m.fl.); alltid et reelt
+  // tilbud selv uten oppgitt før-pris, så det teller som kampanjesignal.
+  return (
+    product.price_source === 'meny' ||
+    product.price_source === 'tjek' ||
+    isLikelyCampaignText(product.campaign_text)
+  );
 }
 
 export function isActiveDealProduct(
@@ -360,9 +366,12 @@ export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyP
     (product) => !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
   );
   const sorted = products.sort((a, b) => {
-    const aIsCampaign = hasCampaignSignal(a) ? 1 : 0;
-    const bIsCampaign = hasCampaignSignal(b) ? 1 : 0;
-    if (bIsCampaign !== aIsCampaign) return bIsCampaign - aIsCampaign;
+    // Tilbud med kvantifisert rabatt (reelt drop_pct) først, sortert på dybde –
+    // gjelder både Kassal-prisfall og tjek-tilbud med før-pris. Deretter tjek-
+    // tilbud uten oppgitt %-rabatt, så de ikke fortrenger de tallfestede tilbudene.
+    const aHasDrop = (a.drop_pct ?? 0) > 0 ? 1 : 0;
+    const bHasDrop = (b.drop_pct ?? 0) > 0 ? 1 : 0;
+    if (bHasDrop !== aHasDrop) return bHasDrop - aHasDrop;
     return (b.drop_pct ?? 0) - (a.drop_pct ?? 0);
   });
   return disambiguateDisplayNames(dedupeProducts(sorted).slice(0, limit));
