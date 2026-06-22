@@ -339,7 +339,13 @@ export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>
   return new Set(unique.filter((ean) => !present.has(ean)));
 }
 
+// Hold i sync med DEFAULT_EXCLUDED i scripts/kassal-sync/sync.ts. Dette er
+// sikkerhetsnettet som filtrerer bort ikke-fysiske/ikke-dagligvare-kjeder også
+// når den serverte products.json er eldre enn ekskluderingslista (f.eks. Oda
+// = nettbutikk, Europris = varehus).
 const EXCLUDED_CHAINS = new Set([
+  'Oda',
+  'Europris',
   'Engrosnett',
   'Havaristen',
   'Holdbart',

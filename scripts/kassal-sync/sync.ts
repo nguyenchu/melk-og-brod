@@ -30,6 +30,7 @@ const RATE_MS = Number(process.env.RATE_MS ?? 1100); // hold oss under 60/min
 const WINDOW_DAYS = Number(process.env.WINDOW_DAYS ?? 90); // vindu for normalpris (median)
 const MIN_POINTS = Number(process.env.MIN_POINTS ?? 4); // minst antall punkter for å stole på median
 const MAX_DROP_PCT = Number(process.env.MAX_DROP_PCT ?? 85); // kutt urealistiske fall (pr kg/stk-artefakter)
+const MAX_PRICE_AGE_DAYS = Number(process.env.MAX_PRICE_AGE_DAYS ?? 60); // dropp butikkpriser Kassal har sluttet å oppdatere (Coop/KIWI/REMA = frosset på ~2023-priser)
 const HISTORY_KEEP = 20; // antall historikkpunkter vi lagrer (holder JSON-fila liten)
 
 // Kjeder vi IKKE tar med – vi viser kun rene fysiske MATBUTIKK-kjeder.
@@ -43,6 +44,9 @@ const EXCLUDED_CHAINS = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 );
+
+// Telles opp av ferskhetsvakten i buildRow, logges til slutt i main().
+let staleOffersSkipped = 0;
 
 // Internt regneobjekt per butikk. url + median trengs kun for overskriften
 // (vendor_url / median_30d) og skrives IKKE ut per butikk – se OutOffer.
@@ -83,6 +87,22 @@ function historyPoints(rows: KassalPricePoint[] | undefined, sinceMs: number): {
     out.push({ date: p.date, price });
   }
   return out;
+}
+
+/**
+ * Nyeste prispunkt-dato (ms) i historikken, eller null hvis vi ikke har noen.
+ * Brukes som «sist sett»-signal: Kassal slutter å oppdatere enkelte kjeder, og
+ * lar `current_price` stå frosset på en gammel verdi (Coop/KIWI = 2023). Et
+ * nyeste punkt langt tilbake i tid betyr at prisen ikke kan stoles på lenger.
+ */
+function newestPriceMs(rows: KassalPricePoint[] | undefined): number | null {
+  let newest: number | null = null;
+  for (const p of rows ?? []) {
+    if (!p.date) continue;
+    const t = new Date(p.date).getTime();
+    if (Number.isFinite(t) && (newest === null || t > newest)) newest = t;
+  }
+  return newest;
 }
 
 function bestProductMeta(rows: KassalSearchProduct[]) {
@@ -128,6 +148,15 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     const price = num(r.current_price);
     if (price == null || price <= 0) continue;
     if (r.store?.name && EXCLUDED_CHAINS.has(r.store.name)) continue; // kun fysiske kjeder
+    // Ferskhetsvakt: har butikken et nyeste prispunkt eldre enn grensa, har
+    // Kassal sluttet å oppdatere kjeden – prisen er foreldet og ville forurenset
+    // både overskrift og «billigst»-sammenligning. Mangler all historikk gir vi
+    // tvilen fordel og beholder raden (kan ikke bevises foreldet).
+    const lastSeenMs = newestPriceMs(r.price_history);
+    if (lastSeenMs != null && Date.now() - lastSeenMs > MAX_PRICE_AGE_DAYS * 86_400_000) {
+      staleOffersSkipped++;
+      continue;
+    }
     const code = r.store?.code ?? r.store?.name ?? 'ukjent';
     const existing = byStore.get(code);
     if (existing && price >= existing.offer.price) continue;
@@ -262,7 +291,9 @@ async function main() {
     rows.push(row);
     if (row.drop_pct != null) deals++;
   }
-  console.log(`[sync] bygde ${rows.length} rader (${deals} med prisfall)`);
+  console.log(
+    `[sync] bygde ${rows.length} rader (${deals} med prisfall, ${staleOffersSkipped} butikkpriser droppet som foreldet > ${MAX_PRICE_AGE_DAYS} d)`,
+  );
 
   // Vis et par eksempler så vi ser at transformen er riktig.
   for (const r of rows.filter((r) => r.drop_pct != null).sort((a, b) => (b.drop_pct ?? 0) - (a.drop_pct ?? 0)).slice(0, 8)) {
