@@ -24,7 +24,156 @@ import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@
 import type { MenyProduct, PricePoint } from '@/lib/types';
 
 const CHAIN_FILTER_KEY = 'deals.chainFilter.v1';
+const COOP_FILTER_KEY = 'deals.coopFilter.v1';
 const ALL_CHAINS = 'Alle';
+const DEALS_SCREEN_LIMIT = 5000;
+const COOP_FILTER_ID = 'Coop';
+const COOP_ALL_FILTER_ID = 'CoopAll';
+const COOP_DEFAULT_FILTER_ID = 'Extra';
+
+type ChainOption = { id: string; label: string; chains: string[] | null; count: number; secondary?: boolean };
+
+const COOP_CHAINS = ['Extra', 'Coop Extra', 'Obs', 'Coop Mega', 'Coop Prix', 'Coop Marked'];
+const COOP_CHAIN_PRIORITY = new Map(
+  COOP_CHAINS.map((chain, index) => [normalizeChainName(chain), index]),
+);
+
+const COOP_CHAIN_FILTERS: ChainOption[] = [
+  { id: 'Extra', label: 'Extra', chains: ['Extra', 'Coop Extra'], count: 0 },
+  { id: 'Obs', label: 'Obs', chains: ['Obs'], count: 0 },
+  { id: 'Coop Mega', label: 'Coop Mega', chains: ['Coop Mega'], count: 0 },
+  { id: 'Coop Prix', label: 'Coop Prix', chains: ['Coop Prix'], count: 0 },
+  { id: 'Coop Marked', label: 'Coop Marked', chains: ['Coop Marked'], count: 0 },
+  { id: COOP_ALL_FILTER_ID, label: 'Alle Coop', chains: COOP_CHAINS, count: 0 },
+];
+
+const FEATURED_CHAIN_FILTERS: ChainOption[] = [
+  { id: 'KIWI', label: 'KIWI', chains: ['KIWI'], count: 0 },
+  { id: 'REMA', label: 'REMA', chains: ['REMA 1000'], count: 0 },
+  { id: COOP_FILTER_ID, label: 'Coop', chains: COOP_CHAINS, count: 0 },
+];
+
+const SECONDARY_CHAIN_NAMES = new Set(['jacobs', 'matkroken', 'spar', 'eurospar'].map(normalizeChainName));
+
+function normalizeChainName(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+const FEATURED_CHAIN_MEMBERS = new Set(
+  FEATURED_CHAIN_FILTERS.flatMap((option) => option.chains ?? []).map(normalizeChainName),
+);
+
+function chainCountsFor(deals: MenyProduct[] | null) {
+  const counts = new Map<string, number>();
+  for (const deal of deals ?? []) {
+    if (!deal.chain) continue;
+    const key = normalizeChainName(deal.chain);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function countChains(chains: string[] | null, counts: Map<string, number>) {
+  return (chains ?? []).reduce((sum, chain) => sum + (counts.get(normalizeChainName(chain)) ?? 0), 0);
+}
+
+function coopFilterIdForStoredValue(value: string | null | undefined) {
+  if (!value) return COOP_DEFAULT_FILTER_ID;
+  const key = normalizeChainName(value);
+  if (key === normalizeChainName(COOP_FILTER_ID) || key === normalizeChainName(COOP_ALL_FILTER_ID)) {
+    return COOP_DEFAULT_FILTER_ID;
+  }
+  return (
+    COOP_CHAIN_FILTERS.find((option) =>
+      option.chains?.some((chain) => normalizeChainName(chain) === key),
+    )?.id ?? COOP_DEFAULT_FILTER_ID
+  );
+}
+
+function chainOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
+  const present = new Map<string, string>();
+  const counts = chainCountsFor(deals);
+  for (const deal of deals ?? []) {
+    if (!deal.chain) continue;
+    const key = normalizeChainName(deal.chain);
+    if (!present.has(key)) present.set(key, deal.chain);
+  }
+
+  const options: ChainOption[] = [
+    { id: ALL_CHAINS, label: ALL_CHAINS, chains: null, count: deals?.length ?? 0 },
+  ];
+  for (const option of FEATURED_CHAIN_FILTERS) {
+    const chains = option.chains ?? [];
+    const count = countChains(chains, counts);
+    options.push({ ...option, chains, count });
+  }
+
+  const remaining = Array.from(present)
+    .map(([key, chain]) => ({ key, chain }))
+    .filter(({ key }) => !FEATURED_CHAIN_MEMBERS.has(key))
+    .sort((a, b) => a.chain.localeCompare(b.chain, 'nb'));
+
+  const chainOptions = options.slice(1).concat(
+    remaining.map(({ chain }) => ({
+      id: chain,
+      label: chain,
+      chains: [chain],
+      count: counts.get(normalizeChainName(chain)) ?? 0,
+      secondary: SECONDARY_CHAIN_NAMES.has(normalizeChainName(chain)),
+    })),
+  );
+  chainOptions.sort((a, b) => {
+    const secondaryOrder = Number(a.secondary ?? false) - Number(b.secondary ?? false);
+    if (secondaryOrder !== 0) return secondaryOrder;
+    return a.label.localeCompare(b.label, 'nb');
+  });
+  return [options[0], ...chainOptions];
+}
+
+function coopOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
+  const counts = chainCountsFor(deals);
+  return COOP_CHAIN_FILTERS.map((option) => ({
+    ...option,
+    count: countChains(option.chains, counts),
+  }));
+}
+
+function selectedChainOption(options: ChainOption[], chainFilter: string): ChainOption {
+  const selectedKey = normalizeChainName(chainFilter);
+  return (
+    options.find((option) => normalizeChainName(option.id) === selectedKey) ??
+    options.find((option) => normalizeChainName(option.label) === selectedKey) ??
+    options.find((option) => option.chains?.some((chain) => normalizeChainName(chain) === selectedKey)) ??
+    options[0]
+  );
+}
+
+function selectedCoopOption(options: ChainOption[], coopFilter: string): ChainOption {
+  const selectedKey = normalizeChainName(coopFilter);
+  return (
+    options.find((option) => normalizeChainName(option.id) === selectedKey) ??
+    options.find((option) => normalizeChainName(option.label) === selectedKey) ??
+    options.find((option) => option.chains?.some((chain) => normalizeChainName(chain) === selectedKey)) ??
+    options.find((option) => option.id === COOP_DEFAULT_FILTER_ID) ??
+    options[0]
+  );
+}
+
+function productMatchesChain(product: MenyProduct, option: ChainOption) {
+  if (!option.chains) return true;
+  if (!product.chain) return false;
+  const selectedChains = new Set(option.chains.map(normalizeChainName));
+  return selectedChains.has(normalizeChainName(product.chain));
+}
+
+function chainPriorityForOption(product: MenyProduct, option: ChainOption) {
+  if (option.id !== COOP_FILTER_ID || !product.chain) return 0;
+  return COOP_CHAIN_PRIORITY.get(normalizeChainName(product.chain)) ?? COOP_CHAINS.length;
+}
 
 function formatComputedAt(value: string) {
   const date = new Date(value);
@@ -70,33 +219,66 @@ export default function DealsScreen() {
   const [fromCache, setFromCache] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
   const [chainFilter, setChainFilter] = useState<string>(ALL_CHAINS);
+  const [coopFilter, setCoopFilter] = useState<string>(COOP_DEFAULT_FILTER_ID);
+  const [coopMenuOpen, setCoopMenuOpen] = useState(false);
   const { items: cartItems } = useCart();
 
   useEffect(() => {
     AsyncStorage.getItem(CHAIN_FILTER_KEY)
       .then((v) => {
-        if (v) setChainFilter(v);
+        if (!v) return;
+        const coopId = coopFilterIdForStoredValue(v);
+        if (coopId !== COOP_DEFAULT_FILTER_ID || normalizeChainName(v) === normalizeChainName(COOP_FILTER_ID)) {
+          setChainFilter(COOP_FILTER_ID);
+          setCoopFilter(coopId);
+        } else {
+          setChainFilter(v);
+        }
+      })
+      .catch(() => {});
+    AsyncStorage.getItem(COOP_FILTER_KEY)
+      .then((v) => {
+        if (v) setCoopFilter(coopFilterIdForStoredValue(v));
       })
       .catch(() => {});
   }, []);
 
   const selectChain = useCallback((chain: string) => {
     setChainFilter(chain);
+    if (chain !== COOP_FILTER_ID) setCoopMenuOpen(false);
     AsyncStorage.setItem(CHAIN_FILTER_KEY, chain).catch(() => {});
   }, []);
 
-  const chains = useMemo(() => {
-    const set = new Set<string>();
-    for (const d of deals ?? []) {
-      if (d.chain) set.add(d.chain);
-    }
-    return [ALL_CHAINS, ...Array.from(set).sort((a, b) => a.localeCompare(b, 'nb'))];
-  }, [deals]);
+  const selectCoopChain = useCallback((chain: string) => {
+    const coopId = coopFilterIdForStoredValue(chain);
+    setCoopFilter(coopId);
+    setCoopMenuOpen(false);
+    AsyncStorage.setItem(COOP_FILTER_KEY, coopId).catch(() => {});
+  }, []);
+
+  const chainOptions = useMemo(() => chainOptionsFor(deals), [deals]);
+  const coopOptions = useMemo(() => coopOptionsFor(deals), [deals]);
+  const selectedChain = useMemo(
+    () => selectedChainOption(chainOptions, chainFilter),
+    [chainOptions, chainFilter],
+  );
+  const selectedCoopChain = useMemo(
+    () => selectedCoopOption(coopOptions, coopFilter),
+    [coopOptions, coopFilter],
+  );
+  const effectiveChain = selectedChain.id === COOP_FILTER_ID ? selectedCoopChain : selectedChain;
+  const showCoopFilters = selectedChain.id === COOP_FILTER_ID;
 
   const filteredDeals = useMemo(() => {
-    if (chainFilter === ALL_CHAINS) return deals ?? [];
-    return (deals ?? []).filter((d) => d.chain === chainFilter);
-  }, [deals, chainFilter]);
+    const matches = (deals ?? []).filter((deal) => productMatchesChain(deal, effectiveChain));
+    if (selectedChain.id !== COOP_FILTER_ID) return matches;
+    return matches.sort(
+      (a, b) => chainPriorityForOption(a, selectedChain) - chainPriorityForOption(b, selectedChain),
+    );
+  }, [deals, effectiveChain, selectedChain]);
+  const emptyMessage = effectiveChain.chains
+    ? `Ingen aktive kampanjer for ${effectiveChain.label} akkurat nå.`
+    : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
 
   const cartByEan = useMemo(() => {
     const map = new Map<string, { id: string; quantity: number }>();
@@ -107,14 +289,14 @@ export default function DealsScreen() {
     return map;
   }, [cartItems]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceNetwork = false) => {
     if (!hasDataConfig()) {
       setError('Tilbud er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
       return;
     }
     try {
       setError(null);
-      const rows = await fetchTopDeals(0.1, 220);
+      const rows = await fetchTopDeals(0.1, DEALS_SCREEN_LIMIT, { forceNetwork });
       setDeals(rows);
       setFromCache(false);
       saveCachedDeals(rows);
@@ -131,14 +313,14 @@ export default function DealsScreen() {
   }, []);
 
   useEffect(() => {
-    load();
+    load(true);
   }, [load]);
 
   const latestComputedAt = deals?.[0]?.computed_at ?? null;
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
+    await load(true);
     setRefreshing(false);
   }
 
@@ -178,7 +360,6 @@ export default function DealsScreen() {
       initialNumToRender={10}
       maxToRenderPerBatch={10}
       windowSize={7}
-      removeClippedSubviews
       ListHeaderComponent={
         <View style={styles.stickyHeader}>
           {error ? (
@@ -195,27 +376,71 @@ export default function DealsScreen() {
                   <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
                 ) : null}
               </View>
-              {chains.length > 1 ? (
+              {chainOptions.length > 1 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.filterRow}
                 >
-                  {chains.map((chain) => {
-                    const active = chain === chainFilter;
+                  {chainOptions.map((option) => {
+                    const active = option.id === selectedChain.id;
                     return (
                       <Pressable
-                        key={chain}
-                        onPress={() => selectChain(chain)}
-                        style={[styles.filterChip, active && styles.filterChipActive]}
+                        key={option.id}
+                        onPress={() => selectChain(option.id)}
+                        style={[
+                          styles.filterChip,
+                          option.secondary && styles.filterChipSecondary,
+                          active && styles.filterChipActive,
+                        ]}
                       >
-                        <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                          {chain}
+                        <Text
+                          style={[
+                            styles.filterChipText,
+                            option.secondary && styles.filterChipTextSecondary,
+                            active && styles.filterChipTextActive,
+                          ]}
+                        >
+                          {option.label} {option.count}
                         </Text>
                       </Pressable>
                     );
                   })}
                 </ScrollView>
+              ) : null}
+              {showCoopFilters ? (
+                <View style={styles.coopDropdown}>
+                  <Pressable
+                    onPress={() => setCoopMenuOpen((open) => !open)}
+                    style={[styles.coopDropdownButton, coopMenuOpen && styles.coopDropdownButtonOpen]}
+                  >
+                    <Text style={styles.coopDropdownButtonText}>
+                      {selectedCoopChain.label} {selectedCoopChain.count}
+                    </Text>
+                    <Ionicons name={coopMenuOpen ? 'chevron-up' : 'chevron-down'} size={15} color="#555" />
+                  </Pressable>
+                  {coopMenuOpen ? (
+                    <View style={styles.coopDropdownMenu}>
+                      {coopOptions.map((option) => {
+                        const active = option.id === selectedCoopChain.id;
+                        return (
+                          <Pressable
+                            key={option.id}
+                            onPress={() => selectCoopChain(option.id)}
+                            style={[styles.coopDropdownItem, active && styles.coopDropdownItemActive]}
+                          >
+                            <Text style={[styles.coopDropdownItemText, active && styles.coopDropdownItemTextActive]}>
+                              {option.label}
+                            </Text>
+                            <Text style={[styles.coopDropdownItemCount, active && styles.coopDropdownItemTextActive]}>
+                              {option.count}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
               ) : null}
             </>
           )}
@@ -224,7 +449,7 @@ export default function DealsScreen() {
       ListEmptyComponent={
         !error ? (
           <Text style={styles.empty}>
-            Ingen aktive kampanjer akkurat nå. Prøv igjen senere.
+            {emptyMessage}
           </Text>
         ) : null
       }
@@ -595,9 +820,50 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#f0f0f3',
   },
+  filterChipSecondary: {
+    backgroundColor: '#fafafa',
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+  },
   filterChipActive: { backgroundColor: '#E10A0A' },
   filterChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  filterChipTextSecondary: { color: '#888', fontWeight: '500' },
   filterChipTextActive: { color: '#fff' },
+  coopDropdown: { marginTop: 8, alignSelf: 'flex-start', minWidth: 190 },
+  coopDropdownButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  coopDropdownButtonOpen: { borderColor: '#E10A0A' },
+  coopDropdownButtonText: { fontSize: 13, fontWeight: '700', color: '#333' },
+  coopDropdownMenu: {
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    overflow: 'hidden',
+  },
+  coopDropdownItem: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  coopDropdownItemActive: { backgroundColor: '#FFF1F1' },
+  coopDropdownItemText: { fontSize: 13, color: '#333', fontWeight: '600' },
+  coopDropdownItemCount: { fontSize: 12, color: '#777', fontWeight: '700' },
+  coopDropdownItemTextActive: { color: '#C60000' },
   errorBox: { backgroundColor: '#FFE5E5', padding: 12, borderRadius: 8, marginBottom: 8 },
   errorText: { color: '#C00' },
   empty: { color: '#999', textAlign: 'center', padding: 32 },

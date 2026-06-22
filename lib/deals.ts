@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCatalog } from './catalog';
+import { getCatalog, refreshCatalog } from './catalog';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
-const DEALS_CACHE_KEY = 'deals.cache.v1';
+const DEALS_CACHE_KEY = 'deals.cache.v5';
 const DEFAULT_SEARCH_LIMIT = 60;
 const DEAL_SEARCH_LIMIT = 80;
 const ACTIVE_DEAL_DROP_PCT = 5;
@@ -360,8 +360,12 @@ const EXCLUDED_CHAINS = new Set([
   'Leske.no',
 ]);
 
-export async function fetchTopDeals(minDropPct = 10, limit = 100): Promise<MenyProduct[]> {
-  const catalog = await getCatalog();
+export async function fetchTopDeals(
+  minDropPct = 10,
+  limit = 100,
+  options: { forceNetwork?: boolean } = {},
+): Promise<MenyProduct[]> {
+  const catalog = options.forceNetwork ? await refreshCatalog() : await getCatalog();
   const products = catalog.filter(
     (product) => !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
   );

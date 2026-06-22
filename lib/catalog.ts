@@ -4,8 +4,9 @@ import type { MenyProduct } from './types';
 // Statisk katalog matet av Kassal-syncen (scripts/kassal-sync → products.json),
 // servert som en vanlig fil. Appen henter den én gang, cacher den, og rangerer/
 // filtrerer klient-side. Ingen database, ingen API-token i appen.
-const DATA_URL = process.env.EXPO_PUBLIC_DATA_URL ?? null;
-const CACHE_KEY = 'catalog.v1';
+const DEFAULT_DATA_URL = 'https://nguyenchu.com/matkupp/products.json';
+const DATA_URL = process.env.EXPO_PUBLIC_DATA_URL || DEFAULT_DATA_URL;
+const CACHE_KEY = 'catalog.v5';
 const TTL_MS = 6 * 60 * 60 * 1000; // hent på nytt hvis cachen er eldre enn 6 t
 
 type CatalogPayload = { computed_at: string; count: number; products: MenyProduct[] };
@@ -32,9 +33,19 @@ async function readCache(): Promise<CachedCatalog | null> {
   }
 }
 
-async function fetchFresh(): Promise<CatalogPayload | null> {
+function dataUrl(forceNetwork: boolean) {
+  if (!forceNetwork) return DATA_URL;
+  const separator = DATA_URL.includes('?') ? '&' : '?';
+  return `${DATA_URL}${separator}v=${Date.now()}`;
+}
+
+async function fetchFresh(forceNetwork: boolean): Promise<CatalogPayload | null> {
   if (!DATA_URL) return null;
-  const res = await fetch(DATA_URL, { headers: { Accept: 'application/json' } });
+  const res = await fetch(dataUrl(forceNetwork), {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
   if (!res.ok) throw new Error(`Katalog ${res.status}`);
   return (await res.json()) as CatalogPayload;
 }
@@ -53,7 +64,7 @@ async function loadCatalog(forceNetwork: boolean): Promise<MenyProduct[]> {
   if (cached && !stale && !forceNetwork) return adopt(cached.payload);
 
   try {
-    const payload = await fetchFresh();
+    const payload = await fetchFresh(forceNetwork);
     if (payload) {
       // Cache er best-effort: store kataloger kan sprenge AsyncStorage/localStorage-grensa
       // (~5–6 MB). En feilet skriving skal aldri hindre at vi bruker de ferske dataene.
