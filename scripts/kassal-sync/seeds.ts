@@ -35,4 +35,15 @@ export const SEED_TERMS: string[] = [
   // Baby & husholdning
   'bleier', 'barnemat', 'våtservietter', 'toalettpapir', 'tørkerull', 'oppvaskmiddel',
   'vaskemiddel', 'såpe', 'tannkrem', 'shampoo',
+  // Utvidet dekning (2026-06-22) – fyller hull for bredere katalog
+  'kremost', 'kaviar', 'prim', 'syltetøy', 'peanøttsmør', 'nugatti', 'honning',
+  'pære', 'mango', 'ananas', 'melon', 'klementin', 'mais', 'erter', 'bønner',
+  'blomkål', 'purre', 'squash', 'ingefær',
+  'linser', 'kikerter', 'hermetiske tomater', 'tomatpuré', 'bakepulver', 'rosiner',
+  'eddik', 'kanel', 'pepper', 'chili', 'curry',
+  'saft', 'iste', 'smoothie', 'mineralvann', 'sjokolademelk',
+  'frosne grønnsaker', 'vårruller', 'lomper', 'frossen fisk',
+  'tortillachips', 'tyggegummi', 'smågodt', 'sjokoladeplate',
+  'oppvasktabletter', 'aluminiumsfolie', 'søppelsekker', 'servietter',
+  'deodorant', 'bind', 'solkrem', 'hundemat', 'kattemat',
 ];

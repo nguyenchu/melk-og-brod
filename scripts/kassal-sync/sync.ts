@@ -32,16 +32,32 @@ const MIN_POINTS = Number(process.env.MIN_POINTS ?? 4); // minst antall punkter 
 const MAX_DROP_PCT = Number(process.env.MAX_DROP_PCT ?? 85); // kutt urealistiske fall (pr kg/stk-artefakter)
 const HISTORY_KEEP = 20; // antall historikkpunkter vi lagrer (holder JSON-fila liten)
 
+// Kjeder vi IKKE tar med – vi viser kun rene fysiske MATBUTIKK-kjeder.
+// Utelater (a) rene nettbutikker/priskilder som ikke er i Kassals /physical-stores
+// (Oda, Engrosnett, Holdbart, godterinett) og (b) fysiske, men ikke-dagligvare
+// varehus (Europris = vari-/lavprisvarehus). Overstyr via env EXCLUDED_CHAINS.
+const DEFAULT_EXCLUDED = 'Oda,Engrosnett,Holdbart,Slowly.no,FastCandy.no,Leske.no,Europris,Havaristen';
+const EXCLUDED_CHAINS = new Set(
+  (process.env.EXCLUDED_CHAINS ?? DEFAULT_EXCLUDED)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+// Internt regneobjekt per butikk. url + median trengs kun for overskriften
+// (vendor_url / median_30d) og skrives IKKE ut per butikk – se OutOffer.
 type StoreOffer = {
   chain: string | null;
   code: string | null;
   price: number;
-  unit_price: number | null;
   url: string | null;
-  logo: string | null;
   median: number | null; // butikkens egen normalpris (median i vinduet)
   drop_pct: number | null; // prisfall mot egen median
 };
+
+// Det slanke butikk-tilbudet som faktisk lagres i products.json (det appen rendrer).
+// url/logo/unit_price/median droppes – de var ubrukt og veide ~1,2 MB.
+type OutOffer = { chain: string | null; code: string | null; price: number; drop_pct: number | null };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -93,7 +109,7 @@ type Row = {
   price_source: 'median' | null;
   drop_pct: number | null;
   campaign_text: string | null;
-  stores: StoreOffer[];
+  stores: OutOffer[];
   price_history: { date: string; price: number }[] | null;
   computed_at: string;
   cheapest_price: number; // billigste nåpris på tvers av kjeder
@@ -111,6 +127,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
   for (const r of rows) {
     const price = num(r.current_price);
     if (price == null || price <= 0) continue;
+    if (r.store?.name && EXCLUDED_CHAINS.has(r.store.name)) continue; // kun fysiske kjeder
     const code = r.store?.code ?? r.store?.name ?? 'ukjent';
     const existing = byStore.get(code);
     if (existing && price >= existing.offer.price) continue;
@@ -132,9 +149,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
         chain: r.store?.name ?? null,
         code: r.store?.code ?? null,
         price,
-        unit_price: num(r.current_unit_price),
         url: r.url ?? null,
-        logo: r.store?.logo ?? null,
         median: med != null ? round2(med) : null,
         drop_pct: drop,
       },
@@ -145,8 +160,8 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
   const entries = [...byStore.values()];
   if (entries.length === 0) return null;
 
-  const stores = entries.map((e) => e.offer).sort((a, b) => a.price - b.price);
-  const cheapest = stores[0];
+  const sortedOffers = entries.map((e) => e.offer).sort((a, b) => a.price - b.price);
+  const cheapest = sortedOffers[0];
 
   // Overskrift = den butikken med størst ekte prisfall mot egen median (et reelt
   // lokketilbud). Finnes ingen, vis billigste butikk uten tilbudsmerking.
@@ -176,7 +191,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     price_source: headline.offer.drop_pct != null ? 'median' : null,
     drop_pct: headline.offer.drop_pct,
     campaign_text: null,
-    stores,
+    stores: sortedOffers.map((o) => ({ chain: o.chain, code: o.code, price: o.price, drop_pct: o.drop_pct })),
     // Prishistorikk lagres bare for tilbud (kun de viser graf), så fila holdes liten
     // nok til at appen kan cache den (AsyncStorage/localStorage ~5–6 MB).
     price_history: headline.offer.drop_pct != null && history.length ? history : null,

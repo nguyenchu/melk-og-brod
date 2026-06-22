@@ -5,10 +5,6 @@ export type StoreOffer = {
   chain: string | null;
   code: string | null;
   price: number;
-  unit_price: number | null;
-  url: string | null;
-  logo: string | null;
-  median: number | null;
   drop_pct: number | null;
 };
 
