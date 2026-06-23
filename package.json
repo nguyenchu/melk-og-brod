@@ -5,18 +5,10 @@
   "scripts": {
     "start": "expo start",
     "sync": "npm --prefix scripts/kassal-sync install && npm --prefix scripts/kassal-sync run sync",
-    "android": "expo start --android",
     "android:go": "adb reverse tcp:8081 tcp:8081 && adb shell am start -a android.intent.action.VIEW -d exp://127.0.0.1:8081",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "lint": "expo lint",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "screenshots": "bash scripts/take_screenshots.sh",
     "build:android": "eas build --platform android --profile production --non-interactive",
-    "build:android:local": "eas build --platform android --profile production --local --non-interactive",
-    "submit:android": "eas submit --platform android --latest",
-    "submit:android:local": "eas submit --platform android --path"
+    "submit:android": "eas submit --platform android --latest"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
