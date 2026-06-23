@@ -33,7 +33,8 @@ function parseMultipackAmount(normalized: string, approximate: boolean): ParsedU
     const packs = Number(match[1]);
     const perPack = Number(match[2].replace(',', '.'));
     const rawUnit = match[3] as 'kg' | 'g' | 'l' | 'dl' | 'cl' | 'ml';
-    if (!Number.isFinite(packs) || !Number.isFinite(perPack) || packs <= 0 || perPack <= 0) continue;
+    if (!Number.isFinite(packs) || !Number.isFinite(perPack) || packs <= 0 || perPack <= 0)
+      continue;
 
     const converted = unitAmountToBase(perPack * packs, rawUnit);
     return { amount: converted.amount, unit: converted.unit, approximate };
@@ -126,6 +127,8 @@ export function formatUnitPriceLabel(input: {
   if (!parsed || !Number.isFinite(parsed.amount) || parsed.amount <= 0) return null;
 
   const unitPrice = input.price / parsed.amount;
-  const value = parsed.approximate ? `${Math.round(unitPrice)} kr/${parsed.unit}` : `${unitPrice.toFixed(2)} kr/${parsed.unit}`;
+  const value = parsed.approximate
+    ? `${Math.round(unitPrice)} kr/${parsed.unit}`
+    : `${unitPrice.toFixed(2)} kr/${parsed.unit}`;
   return parsed.approximate ? `ca. ${value}` : value;
 }

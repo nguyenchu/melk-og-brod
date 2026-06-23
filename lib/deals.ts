@@ -49,19 +49,65 @@ const STAPLE_PROFILES: Record<
   }
 > = {
   egg: {
-    include: ['egg', '10pk', '12pk', '6pk', 'frittgaende', 'gardsegg', 'frokostegg', 'solegg', 'prior', 'bakketun'],
+    include: [
+      'egg',
+      '10pk',
+      '12pk',
+      '6pk',
+      'frittgaende',
+      'gardsegg',
+      'frokostegg',
+      'solegg',
+      'prior',
+      'bakketun',
+    ],
     avoid: ['eggesalat', 'eggelikor', 'ammeinnlegg', 'palegg', 'reker', 'majones'],
   },
   melk: {
-    include: ['melk', 'lettmelk', 'helmelk', 'skummetmelk', 'h melk', 'laktosefri', 'tinemelk', 'q melk'],
-    avoid: ['melkesjokolade', 'sjokolademelk', 'havremelk', 'mandelmelk', 'kokosmelk', 'proteinmelk', 'kaffe'],
+    include: [
+      'melk',
+      'lettmelk',
+      'helmelk',
+      'skummetmelk',
+      'h melk',
+      'laktosefri',
+      'tinemelk',
+      'q melk',
+    ],
+    avoid: [
+      'melkesjokolade',
+      'sjokolademelk',
+      'havremelk',
+      'mandelmelk',
+      'kokosmelk',
+      'proteinmelk',
+      'kaffe',
+    ],
   },
   smor: {
-    include: ['smør', 'meierismør', 'lettsmør', 'lurpak', 'brelett', 'bremykt', 'smøremyk', 'soyasmør'],
+    include: [
+      'smør',
+      'meierismør',
+      'lettsmør',
+      'lurpak',
+      'brelett',
+      'bremykt',
+      'smøremyk',
+      'soyasmør',
+    ],
     avoid: ['smørbrød', 'smørsmak', 'kryddersmør', 'hvitløksmør', 'sandefjordsmør', 'kyllingsmør'],
   },
   brod: {
-    include: ['brod', 'grovbrod', 'kneipp', 'rundstykker', 'toastbrod', 'havrebrod', 'fjellbrod', 'mors brod'],
+    include: [
+      'brod',
+      'grovbrod',
+      'kneipp',
+      'rundstykker',
+      'toastbrod',
+      'havrebrod',
+      'fjellbrod',
+      'mors brod',
+    ],
     avoid: ['knaeckebrod', 'broding', 'brodform', 'brodmix'],
   },
   ost: {
@@ -156,10 +202,7 @@ const STAPLE_PROFILES: Record<
 };
 
 function replaceNordicLetters(value: string) {
-  return value
-    .replace(/æ/g, 'ae')
-    .replace(/ø/g, 'o')
-    .replace(/å/g, 'a');
+  return value.replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'a');
 }
 
 function normalizeSearchText(value: string) {
@@ -220,8 +263,7 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
     const strongMatch = m.exactWord || m.prefixWord || m.suffixWord || m.inVendor;
     // Hyphen-bridge: "kroneis" matches "krone is" / "krone-is" via the
     // separator-stripped name. Acts like a contains-match, counts as matched.
-    const denseMatch =
-      !strongMatch && term.length >= 4 && nameDense.includes(term);
+    const denseMatch = !strongMatch && term.length >= 4 && nameDense.includes(term);
     const matched = strongMatch || m.containsWord || m.brandPrefix || denseMatch;
     if (!matched) primaryMatched = false;
     if (matched) matchedTerms += 1;
@@ -284,7 +326,8 @@ function scoreProduct(product: MenyProduct, terms: string[]) {
   if (matchedTerms === terms.length) score += 120;
   else if (matchedTerms > 0) score += matchedTerms * 24;
   if (hasCampaignSignal(product)) score += 180;
-  if ((product.drop_pct ?? 0) >= ACTIVE_DEAL_DROP_PCT) score += Math.min(140, (product.drop_pct ?? 0) * 5);
+  if ((product.drop_pct ?? 0) >= ACTIVE_DEAL_DROP_PCT)
+    score += Math.min(140, (product.drop_pct ?? 0) * 5);
   if (product.current_price != null) score += Math.max(0, 20 - product.current_price / 20);
   return score;
 }
@@ -316,7 +359,9 @@ function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
 function dedupeProducts(products: MenyProduct[]): MenyProduct[] {
   const seen = new Map<string, MenyProduct>();
   for (const product of products) {
-    const key = product.ean || `${normalizeSearchText(product.name).replace(/\s+/g, ' ').trim()}|${product.current_price != null ? product.current_price.toFixed(2) : 'null'}`;
+    const key =
+      product.ean ||
+      `${normalizeSearchText(product.name).replace(/\s+/g, ' ').trim()}|${product.current_price != null ? product.current_price.toFixed(2) : 'null'}`;
     const existing = seen.get(key);
     if (!existing) {
       seen.set(key, product);
@@ -367,7 +412,8 @@ export async function fetchTopDeals(
 ): Promise<MenyProduct[]> {
   const catalog = options.forceNetwork ? await refreshCatalog() : await getCatalog();
   const products = catalog.filter(
-    (product) => !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
+    (product) =>
+      !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
   );
   const sorted = products.sort((a, b) => {
     // Tilbud med kvantifisert rabatt (reelt drop_pct) først, sortert på dybde –
@@ -385,7 +431,7 @@ export async function searchProducts(
   query: string,
   options?: number | { limit?: number; dealsOnly?: boolean },
 ): Promise<MenyProduct[]> {
-  const normalizedOptions = typeof options === 'number' ? { limit: options } : options ?? {};
+  const normalizedOptions = typeof options === 'number' ? { limit: options } : (options ?? {});
   const limit = normalizedOptions.limit ?? DEFAULT_SEARCH_LIMIT;
   const dealsOnly = normalizedOptions.dealsOnly ?? false;
   const q = query.trim();

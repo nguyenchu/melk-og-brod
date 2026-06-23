@@ -88,12 +88,17 @@ async function loadCatalog(forceNetwork: boolean): Promise<MenyProduct[]> {
 /** Hele katalogen (cache-først, nett ved utløpt TTL). Deles i minnet for økta. */
 export async function getCatalog(): Promise<MenyProduct[]> {
   if (memoryProducts) return memoryProducts;
-  if (!inflight) inflight = loadCatalog(false).finally(() => { inflight = null; });
+  if (!inflight)
+    inflight = loadCatalog(false).finally(() => {
+      inflight = null;
+    });
   return inflight;
 }
 
 /** Tving nytt nettkall (pull-to-refresh). */
 export async function refreshCatalog(): Promise<MenyProduct[]> {
-  inflight = loadCatalog(true).finally(() => { inflight = null; });
+  inflight = loadCatalog(true).finally(() => {
+    inflight = null;
+  });
   return inflight;
 }

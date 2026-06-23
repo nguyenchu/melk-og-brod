@@ -15,7 +15,10 @@ export interface TjekOffer {
   heading: string;
   description?: string | null;
   pricing?: { price: number; pre_price: number | null; currency: string } | null;
-  quantity?: { unit?: { symbol?: string } | null; size?: { from?: number; to?: number } | null } | null;
+  quantity?: {
+    unit?: { symbol?: string } | null;
+    size?: { from?: number; to?: number } | null;
+  } | null;
   images?: { thumb?: string; view?: string; zoom?: string } | null;
   run_from?: string | null;
   run_till?: string | null;
@@ -73,7 +76,9 @@ export async function fetchCatalogOffers(catalogId: string): Promise<TjekOffer[]
   const all: TjekOffer[] = [];
   let offset = 0;
   for (let i = 0; i < 8; i++) {
-    const page = await tjek<TjekOffer[]>(`/offers?catalog_id=${catalogId}&limit=100&offset=${offset}`);
+    const page = await tjek<TjekOffer[]>(
+      `/offers?catalog_id=${catalogId}&limit=100&offset=${offset}`,
+    );
     if (!Array.isArray(page) || page.length === 0) break;
     all.push(...page);
     if (page.length < 100) break;

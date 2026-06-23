@@ -42,7 +42,11 @@ export default function CartScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try { await sync(); } finally { setRefreshing(false); }
+    try {
+      await sync();
+    } finally {
+      setRefreshing(false);
+    }
   }, [sync]);
   const favorites = useFavorites();
   const [query, setQuery] = useState('');
@@ -116,7 +120,10 @@ export default function CartScreen() {
     const parsedPrice = normalizedPrice ? Number(normalizedPrice) : null;
     await addToCart({
       name,
-      price: parsedPrice != null && Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : null,
+      price:
+        parsedPrice != null && Number.isFinite(parsedPrice) && parsedPrice >= 0
+          ? parsedPrice
+          : null,
     });
     setQuery('');
     setManualPrice('');
@@ -133,7 +140,12 @@ export default function CartScreen() {
 
   const [discontinuedEans, setDiscontinuedEans] = useState<Set<string>>(new Set());
   const cartEansKey = useMemo(
-    () => items.map((i) => i.ean).filter((e): e is string => !!e).sort().join(','),
+    () =>
+      items
+        .map((i) => i.ean)
+        .filter((e): e is string => !!e)
+        .sort()
+        .join(','),
     [items],
   );
   useEffect(() => {
@@ -200,15 +212,21 @@ export default function CartScreen() {
         <View style={styles.searchModeRow}>
           <Pressable
             onPress={() => setSearchMode('all')}
-            style={[styles.searchModeChip, searchMode === 'all' && styles.searchModeChipActive]}>
-            <Text style={[styles.searchModeText, searchMode === 'all' && styles.searchModeTextActive]}>
+            style={[styles.searchModeChip, searchMode === 'all' && styles.searchModeChipActive]}
+          >
+            <Text
+              style={[styles.searchModeText, searchMode === 'all' && styles.searchModeTextActive]}
+            >
               Alle varer
             </Text>
           </Pressable>
           <Pressable
             onPress={() => setSearchMode('deals')}
-            style={[styles.searchModeChip, searchMode === 'deals' && styles.searchModeChipActive]}>
-            <Text style={[styles.searchModeText, searchMode === 'deals' && styles.searchModeTextActive]}>
+            style={[styles.searchModeChip, searchMode === 'deals' && styles.searchModeChipActive]}
+          >
+            <Text
+              style={[styles.searchModeText, searchMode === 'deals' && styles.searchModeTextActive]}
+            >
               Bare tilbud
             </Text>
           </Pressable>
@@ -247,10 +265,19 @@ export default function CartScreen() {
                       <Pressable
                         key={fav.ean}
                         style={styles.favChip}
-                        onPress={() => addToCart({ name: fav.name, ean: fav.ean, image_url: fav.image_url, price: fav.price })}
+                        onPress={() =>
+                          addToCart({
+                            name: fav.name,
+                            ean: fav.ean,
+                            image_url: fav.image_url,
+                            price: fav.price,
+                          })
+                        }
                       >
                         <Ionicons name="add" size={14} color="#E10A0A" />
-                        <Text style={styles.favChipText} numberOfLines={1}>{fav.name}</Text>
+                        <Text style={styles.favChipText} numberOfLines={1}>
+                          {fav.name}
+                        </Text>
                       </Pressable>
                     ))}
                   </View>
@@ -308,7 +335,9 @@ export default function CartScreen() {
           }
         />
       )}
-      {showStickyTotal ? <StickyTotal total={total} savings={savings} searching={showSearchPanel} /> : null}
+      {showStickyTotal ? (
+        <StickyTotal total={total} savings={savings} searching={showSearchPanel} />
+      ) : null}
     </View>
   );
 }
@@ -341,9 +370,7 @@ function SearchResults({
       <View style={styles.manualAddCard}>
         <Pressable style={styles.manualAddAction} onPress={onAddManual}>
           <Ionicons name="add-circle" size={22} color="#E10A0A" />
-          <Text style={styles.manualAddText}>
-            Legg til “{query.trim()}” manuelt
-          </Text>
+          <Text style={styles.manualAddText}>Legg til “{query.trim()}” manuelt</Text>
         </Pressable>
         <View style={styles.manualPriceRow}>
           <Text style={styles.manualPriceLabel}>Ca. pris</Text>
@@ -365,7 +392,7 @@ function SearchResults({
     ({ item }: { item: MenyProduct }) => (
       <SearchResultRow
         item={item}
-        cartQuantity={item.ean ? activeCartByEan.get(item.ean) ?? 0 : 0}
+        cartQuantity={item.ean ? (activeCartByEan.get(item.ean) ?? 0) : 0}
         onPick={onPick}
       />
     ),
@@ -383,14 +410,18 @@ function SearchResults({
       windowSize={7}
       removeClippedSubviews
       ListHeaderComponent={
-        searchMode === 'deals' ? <Text style={styles.searchHint}>Viser bare varer med aktiv kampanje eller prisfall</Text> : null
+        searchMode === 'deals' ? (
+          <Text style={styles.searchHint}>Viser bare varer med aktiv kampanje eller prisfall</Text>
+        ) : null
       }
       ListEmptyComponent={
         searching ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
         ) : query.trim().length < 2 ? null : (
           <View style={{ gap: 8 }}>
-            <Text style={styles.empty}>Ingen treff i appen ennå — varen kan likevel finnes i butikkene.</Text>
+            <Text style={styles.empty}>
+              Ingen treff i appen ennå — varen kan likevel finnes i butikkene.
+            </Text>
             {manualAddCard}
           </View>
         )
@@ -417,7 +448,11 @@ const SearchResultRow = memo(function SearchResultRow({
   const beforePrice = isMenyPromo ? item.original_price : item.median_30d;
   const beforePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
   const showDeal = item.drop_pct != null && item.drop_pct >= 5;
-  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
+  const unitPriceLabel = formatUnitPriceLabel({
+    name: item.name,
+    price: item.current_price,
+    ean: item.ean,
+  });
 
   return (
     <View style={[styles.resultRow, inCart && styles.resultRowInCart]}>
@@ -443,7 +478,12 @@ const SearchResultRow = memo(function SearchResultRow({
             <Text style={[styles.dealBadge, !isMenyPromo && styles.dealBadgeMedian]}>
               −{Math.round(item.drop_pct!)} %
             </Text>
-            <Text style={[styles.resultSourceLabel, isMenyPromo ? styles.resultSourceLabelMeny : styles.resultSourceLabelMedian]}>
+            <Text
+              style={[
+                styles.resultSourceLabel,
+                isMenyPromo ? styles.resultSourceLabelMeny : styles.resultSourceLabelMedian,
+              ]}
+            >
               {isMenyPromo ? 'Kampanje' : 'Prisfall'}
             </Text>
           </>
@@ -461,20 +501,45 @@ const SearchResultRow = memo(function SearchResultRow({
       <Pressable
         onPress={() => onPick(item)}
         hitSlop={8}
-        style={[styles.resultAddButton, inCart && styles.resultAddButtonDone]}>
-        <Ionicons name={inCart ? 'checkmark' : 'add'} size={22} color={inCart ? '#fff' : '#E10A0A'} />
+        style={[styles.resultAddButton, inCart && styles.resultAddButtonDone]}
+      >
+        <Ionicons
+          name={inCart ? 'checkmark' : 'add'}
+          size={22}
+          color={inCart ? '#fff' : '#E10A0A'}
+        />
       </Pressable>
       {inCart ? <Text style={styles.resultCartCount}>{cartQuantity}</Text> : null}
       <Pressable
         hitSlop={8}
-        onPress={() => toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price })}>
-        <Ionicons name={starred ? 'star' : 'star-outline'} size={18} color={starred ? '#F5A623' : '#ccc'} />
+        onPress={() =>
+          toggleFavorite({
+            ean: item.ean,
+            name: item.name,
+            image_url: item.image_url,
+            price: item.current_price,
+          })
+        }
+      >
+        <Ionicons
+          name={starred ? 'star' : 'star-outline'}
+          size={18}
+          color={starred ? '#F5A623' : '#ccc'}
+        />
       </Pressable>
     </View>
   );
 });
 
-function StickyTotal({ total, savings, searching }: { total: number; savings: number; searching: boolean }) {
+function StickyTotal({
+  total,
+  savings,
+  searching,
+}: {
+  total: number;
+  savings: number;
+  searching: boolean;
+}) {
   const showSavings = savings > 0.005;
   return (
     <View style={styles.stickyTotalWrap}>
@@ -511,7 +576,11 @@ const CartRow = memo(function CartRow({
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
   const value = draftQuantity ?? String(item.quantity);
   const lineTotal = getLineTotal(item);
-  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.price, ean: item.ean });
+  const unitPriceLabel = formatUnitPriceLabel({
+    name: item.name,
+    price: item.price,
+    ean: item.ean,
+  });
   const favorites = useFavorites();
   const starred = !!item.ean && favorites.some((f) => f.ean === item.ean);
 
@@ -559,7 +628,12 @@ const CartRow = memo(function CartRow({
               {item.price != null && (
                 <Text style={styles.cartPrice} numberOfLines={1}>
                   <Text style={styles.cartPricePrimary}>{item.price.toFixed(2)} kr</Text>
-                  {item.quantity > 1 ? <Text style={styles.cartPriceSecondary}> · {lineTotal.toFixed(2)} kr totalt</Text> : null}
+                  {item.quantity > 1 ? (
+                    <Text style={styles.cartPriceSecondary}>
+                      {' '}
+                      · {lineTotal.toFixed(2)} kr totalt
+                    </Text>
+                  ) : null}
                 </Text>
               )}
               {item.drop_pct != null && item.drop_pct >= 5 ? (
@@ -573,7 +647,8 @@ const CartRow = memo(function CartRow({
               <Pressable
                 onPress={() => onChangeQuantity(item.id, Math.max(1, item.quantity - 1))}
                 hitSlop={8}
-                style={styles.quantityButton}>
+                style={styles.quantityButton}
+              >
                 <Ionicons name="remove" size={16} color="#444" />
               </Pressable>
               <TextInput
@@ -591,7 +666,8 @@ const CartRow = memo(function CartRow({
               <Pressable
                 onPress={() => onChangeQuantity(item.id, item.quantity + 1)}
                 hitSlop={8}
-                style={styles.quantityButton}>
+                style={styles.quantityButton}
+              >
                 <Ionicons name="add" size={16} color="#444" />
               </Pressable>
             </View>
@@ -606,7 +682,8 @@ const CartRow = memo(function CartRow({
                   })
                 }
                 hitSlop={8}
-                style={styles.removeButton}>
+                style={styles.removeButton}
+              >
                 <Ionicons
                   name={starred ? 'star' : 'star-outline'}
                   size={18}

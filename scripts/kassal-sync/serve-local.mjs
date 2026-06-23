@@ -25,5 +25,7 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, '0.0.0.0', () => {
   console.log(`Serverer ${FILE}`);
-  console.log(`→ http://localhost:${PORT}/products.json  (LAN: http://192.168.0.7:${PORT}/products.json)`);
+  console.log(
+    `→ http://localhost:${PORT}/products.json  (LAN: http://192.168.0.7:${PORT}/products.json)`,
+  );
 });

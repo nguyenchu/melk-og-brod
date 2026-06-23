@@ -37,7 +37,10 @@ interface KassalList<T> {
   meta?: { current_page?: number; per_page?: number; to?: number };
 }
 
-async function kassal<T>(path: string, params: Record<string, string | number> = {}): Promise<KassalList<T>> {
+async function kassal<T>(
+  path: string,
+  params: Record<string, string | number> = {},
+): Promise<KassalList<T>> {
   if (!TOKEN) throw new Error('KASSAL_API_TOKEN mangler i miljøet');
   const url = new URL(BASE + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));

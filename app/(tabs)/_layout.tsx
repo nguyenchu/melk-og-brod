@@ -31,18 +31,14 @@ export default function TabsLayout() {
         name="deals"
         options={{
           title: 'Tilbud',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pricetag" color={color} size={size} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="pricetag" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="cart"
         options={{
           title: 'Handleliste',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="cart" color={color} size={size} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="cart" color={color} size={size} />,
         }}
       />
     </Tabs>

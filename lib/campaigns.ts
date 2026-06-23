@@ -6,7 +6,9 @@ export function isLikelyCampaignText(value: string | null | undefined) {
   if (
     text.length > 60 ||
     /[{}[\]":]/.test(text) ||
-    /next_public_|window\.env|trumfid|chainid|token|provider|login|rainforest_alliance|fairtrade|utz|oekologisk|okologisk/.test(normalized)
+    /next_public_|window\.env|trumfid|chainid|token|provider|login|rainforest_alliance|fairtrade|utz|oekologisk|okologisk/.test(
+      normalized,
+    )
   ) {
     return false;
   }
@@ -40,9 +42,7 @@ export function getBundlePayForOffer(value: string | null | undefined) {
     }
   }
 
-  const buyPayMatch = normalized.match(
-    /\bkj[øo]p\s*(\d+)[,\s]+betal\s*(?:for\s*)?(\d+)\b/,
-  );
+  const buyPayMatch = normalized.match(/\bkj[øo]p\s*(\d+)[,\s]+betal\s*(?:for\s*)?(\d+)\b/);
   if (buyPayMatch) {
     const buy = Number(buyPayMatch[1]);
     const payFor = Number(buyPayMatch[2]);
@@ -61,7 +61,9 @@ type BundleItem = {
   checked?: boolean;
 };
 
-export function computeCartTotals<T extends BundleItem>(items: readonly T[]): {
+export function computeCartTotals<T extends BundleItem>(
+  items: readonly T[],
+): {
   total: number;
   naiveSubtotal: number;
   savings: number;
@@ -137,7 +139,11 @@ export function getCampaignKind(value: string | null | undefined) {
   if (/\bryddesalg\b/.test(normalized)) {
     return 'clearance' as const;
   }
-  if (/\btilbud\b/.test(normalized) || /\brabatt\b/.test(normalized) || /\bsommerpris\b/.test(normalized)) {
+  if (
+    /\btilbud\b/.test(normalized) ||
+    /\brabatt\b/.test(normalized) ||
+    /\bsommerpris\b/.test(normalized)
+  ) {
     return 'generic' as const;
   }
   return 'generic' as const;

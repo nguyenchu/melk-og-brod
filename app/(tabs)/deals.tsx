@@ -31,7 +31,13 @@ const COOP_FILTER_ID = 'Coop';
 const COOP_ALL_FILTER_ID = 'CoopAll';
 const COOP_DEFAULT_FILTER_ID = 'Extra';
 
-type ChainOption = { id: string; label: string; chains: string[] | null; count: number; secondary?: boolean };
+type ChainOption = {
+  id: string;
+  label: string;
+  chains: string[] | null;
+  count: number;
+  secondary?: boolean;
+};
 
 const COOP_CHAINS = ['Extra', 'Coop Extra', 'Obs', 'Coop Mega', 'Coop Prix', 'Coop Marked'];
 const COOP_CHAIN_PRIORITY = new Map(
@@ -53,14 +59,12 @@ const FEATURED_CHAIN_FILTERS: ChainOption[] = [
   { id: COOP_FILTER_ID, label: 'Coop', chains: COOP_CHAINS, count: 0 },
 ];
 
-const SECONDARY_CHAIN_NAMES = new Set(['jacobs', 'matkroken', 'spar', 'eurospar'].map(normalizeChainName));
+const SECONDARY_CHAIN_NAMES = new Set(
+  ['jacobs', 'matkroken', 'spar', 'eurospar'].map(normalizeChainName),
+);
 
 function normalizeChainName(value: string) {
-  return value
-    .normalize('NFKC')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 const FEATURED_CHAIN_MEMBERS = new Set(
@@ -78,13 +82,19 @@ function chainCountsFor(deals: MenyProduct[] | null) {
 }
 
 function countChains(chains: string[] | null, counts: Map<string, number>) {
-  return (chains ?? []).reduce((sum, chain) => sum + (counts.get(normalizeChainName(chain)) ?? 0), 0);
+  return (chains ?? []).reduce(
+    (sum, chain) => sum + (counts.get(normalizeChainName(chain)) ?? 0),
+    0,
+  );
 }
 
 function coopFilterIdForStoredValue(value: string | null | undefined) {
   if (!value) return COOP_DEFAULT_FILTER_ID;
   const key = normalizeChainName(value);
-  if (key === normalizeChainName(COOP_FILTER_ID) || key === normalizeChainName(COOP_ALL_FILTER_ID)) {
+  if (
+    key === normalizeChainName(COOP_FILTER_ID) ||
+    key === normalizeChainName(COOP_ALL_FILTER_ID)
+  ) {
     return COOP_DEFAULT_FILTER_ID;
   }
   return (
@@ -147,7 +157,9 @@ function selectedChainOption(options: ChainOption[], chainFilter: string): Chain
   return (
     options.find((option) => normalizeChainName(option.id) === selectedKey) ??
     options.find((option) => normalizeChainName(option.label) === selectedKey) ??
-    options.find((option) => option.chains?.some((chain) => normalizeChainName(chain) === selectedKey)) ??
+    options.find((option) =>
+      option.chains?.some((chain) => normalizeChainName(chain) === selectedKey),
+    ) ??
     options[0]
   );
 }
@@ -157,7 +169,9 @@ function selectedCoopOption(options: ChainOption[], coopFilter: string): ChainOp
   return (
     options.find((option) => normalizeChainName(option.id) === selectedKey) ??
     options.find((option) => normalizeChainName(option.label) === selectedKey) ??
-    options.find((option) => option.chains?.some((chain) => normalizeChainName(chain) === selectedKey)) ??
+    options.find((option) =>
+      option.chains?.some((chain) => normalizeChainName(chain) === selectedKey),
+    ) ??
     options.find((option) => option.id === COOP_DEFAULT_FILTER_ID) ??
     options[0]
   );
@@ -228,7 +242,10 @@ export default function DealsScreen() {
       .then((v) => {
         if (!v) return;
         const coopId = coopFilterIdForStoredValue(v);
-        if (coopId !== COOP_DEFAULT_FILTER_ID || normalizeChainName(v) === normalizeChainName(COOP_FILTER_ID)) {
+        if (
+          coopId !== COOP_DEFAULT_FILTER_ID ||
+          normalizeChainName(v) === normalizeChainName(COOP_FILTER_ID)
+        ) {
           setChainFilter(COOP_FILTER_ID);
           setCoopFilter(coopId);
         } else {
@@ -352,118 +369,124 @@ export default function DealsScreen() {
 
   return (
     <>
-    <FlatList
-      data={filteredDeals}
-      keyExtractor={(d) => d.ean}
-      contentContainerStyle={styles.list}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      stickyHeaderIndices={[0]}
-      initialNumToRender={10}
-      maxToRenderPerBatch={10}
-      windowSize={7}
-      ListHeaderComponent={
-        <View style={styles.stickyHeader}>
-          {error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.headerBlock}>
-                <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
-                {fromCache ? (
-                  <Text style={styles.cacheNotice}>Viser sist hentede tilbud · ingen nettilgang</Text>
-                ) : latestComputedAt ? (
-                  <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
-                ) : null}
+      <FlatList
+        data={filteredDeals}
+        keyExtractor={(d) => d.ean}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        stickyHeaderIndices={[0]}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        ListHeaderComponent={
+          <View style={styles.stickyHeader}>
+            {error ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
               </View>
-              {chainOptions.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.filterRow}
-                >
-                  {chainOptions.map((option) => {
-                    const active = option.id === selectedChain.id;
-                    const isCoop = option.id === COOP_FILTER_ID;
-                    return (
-                      <Pressable
-                        key={option.id}
-                        onPress={() => {
-                          if (isCoop && active) {
-                            setCoopMenuOpen((open) => !open);
-                            return;
-                          }
-                          selectChain(option.id);
-                          if (isCoop) setCoopMenuOpen(true);
-                        }}
-                        style={[
-                          styles.filterChip,
-                          isCoop && styles.filterChipCoop,
-                          option.secondary && styles.filterChipSecondary,
-                          active && styles.filterChipActive,
-                        ]}
-                      >
-                        <View style={styles.filterChipContent}>
+            ) : (
+              <>
+                <View style={styles.headerBlock}>
+                  <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
+                  {fromCache ? (
+                    <Text style={styles.cacheNotice}>
+                      Viser sist hentede tilbud · ingen nettilgang
+                    </Text>
+                  ) : latestComputedAt ? (
+                    <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+                  ) : null}
+                </View>
+                {chainOptions.length > 1 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.filterRow}
+                  >
+                    {chainOptions.map((option) => {
+                      const active = option.id === selectedChain.id;
+                      const isCoop = option.id === COOP_FILTER_ID;
+                      return (
+                        <Pressable
+                          key={option.id}
+                          onPress={() => {
+                            if (isCoop && active) {
+                              setCoopMenuOpen((open) => !open);
+                              return;
+                            }
+                            selectChain(option.id);
+                            if (isCoop) setCoopMenuOpen(true);
+                          }}
+                          style={[
+                            styles.filterChip,
+                            isCoop && styles.filterChipCoop,
+                            option.secondary && styles.filterChipSecondary,
+                            active && styles.filterChipActive,
+                          ]}
+                        >
+                          <View style={styles.filterChipContent}>
+                            <Text
+                              style={[
+                                styles.filterChipText,
+                                option.secondary && styles.filterChipTextSecondary,
+                                active && styles.filterChipTextActive,
+                              ]}
+                            >
+                              {isCoop ? coopChipLabel : `${option.label} ${option.count}`}
+                            </Text>
+                            {isCoop ? (
+                              <Ionicons
+                                name={coopMenuOpen && active ? 'chevron-up' : 'chevron-down'}
+                                size={14}
+                                color={active ? '#fff' : '#555'}
+                              />
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : null}
+                {showCoopFilters && coopMenuOpen ? (
+                  <View style={styles.coopDropdownMenu}>
+                    {coopOptions.map((option) => {
+                      const active = option.id === selectedCoopChain.id;
+                      return (
+                        <Pressable
+                          key={option.id}
+                          onPress={() => selectCoopChain(option.id)}
+                          style={[styles.coopDropdownItem, active && styles.coopDropdownItemActive]}
+                        >
                           <Text
                             style={[
-                              styles.filterChipText,
-                              option.secondary && styles.filterChipTextSecondary,
-                              active && styles.filterChipTextActive,
+                              styles.coopDropdownItemText,
+                              active && styles.coopDropdownItemTextActive,
                             ]}
                           >
-                            {isCoop ? coopChipLabel : `${option.label} ${option.count}`}
+                            {option.label}
                           </Text>
-                          {isCoop ? (
-                            <Ionicons
-                              name={coopMenuOpen && active ? 'chevron-up' : 'chevron-down'}
-                              size={14}
-                              color={active ? '#fff' : '#555'}
-                            />
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : null}
-              {showCoopFilters && coopMenuOpen ? (
-                <View style={styles.coopDropdownMenu}>
-                  {coopOptions.map((option) => {
-                    const active = option.id === selectedCoopChain.id;
-                    return (
-                      <Pressable
-                        key={option.id}
-                        onPress={() => selectCoopChain(option.id)}
-                        style={[styles.coopDropdownItem, active && styles.coopDropdownItemActive]}
-                      >
-                        <Text style={[styles.coopDropdownItemText, active && styles.coopDropdownItemTextActive]}>
-                          {option.label}
-                        </Text>
-                        <Text style={[styles.coopDropdownItemCount, active && styles.coopDropdownItemTextActive]}>
-                          {option.count}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </>
-          )}
-        </View>
-      }
-      ListEmptyComponent={
-        !error ? (
-          <Text style={styles.empty}>
-            {emptyMessage}
-          </Text>
-        ) : null
-      }
-      renderItem={renderItem}
-    />
-    {selectedDeal && (
-      <PriceHistoryModal deal={selectedDeal} onClose={() => setSelectedDeal(null)} />
-    )}
+                          <Text
+                            style={[
+                              styles.coopDropdownItemCount,
+                              active && styles.coopDropdownItemTextActive,
+                            ]}
+                          >
+                            {option.count}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </>
+            )}
+          </View>
+        }
+        ListEmptyComponent={!error ? <Text style={styles.empty}>{emptyMessage}</Text> : null}
+        renderItem={renderItem}
+      />
+      {selectedDeal && (
+        <PriceHistoryModal deal={selectedDeal} onClose={() => setSelectedDeal(null)} />
+      )}
     </>
   );
 }
@@ -518,7 +541,11 @@ const DealRow = memo(function DealRow({
   const beforePriceLabel = formatDisplayPrice(item.median_30d, approximate);
   const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
   const validUntilLabel = isWeekly ? formatValidUntil(item.valid_until) : null;
-  const unitPriceLabel = formatUnitPriceLabel({ name: item.name, price: item.current_price, ean: item.ean });
+  const unitPriceLabel = formatUnitPriceLabel({
+    name: item.name,
+    price: item.current_price,
+    ean: item.ean,
+  });
   const showBrand = shouldShowBrand(item.name, item.brand);
 
   return (
@@ -549,10 +576,16 @@ const DealRow = memo(function DealRow({
             </Text>
           ) : null}
         </View>
-        {isLikelyCampaignText(item.campaign_text) ? <CampaignBadge text={item.campaign_text!} /> : null}
-        {approximate ? <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text> : null}
+        {isLikelyCampaignText(item.campaign_text) ? (
+          <CampaignBadge text={item.campaign_text!} />
+        ) : null}
+        {approximate ? (
+          <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
+        ) : null}
         {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
-        {validUntilLabel ? <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text> : null}
+        {validUntilLabel ? (
+          <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
+        ) : null}
       </View>
       <View style={styles.right}>
         <View style={styles.dropBadge}>
@@ -563,7 +596,9 @@ const DealRow = memo(function DealRow({
           )}
         </View>
         {item.chain ? (
-          <Text style={styles.chainLabel} numberOfLines={1}>{item.chain}</Text>
+          <Text style={styles.chainLabel} numberOfLines={1}>
+            {item.chain}
+          </Text>
         ) : null}
         {inCart ? (
           <View style={styles.quantityControl}>
@@ -582,10 +617,21 @@ const DealRow = memo(function DealRow({
         )}
         <View style={styles.rightExtras}>
           <Pressable
-            onPress={() => toggleFavorite({ ean: item.ean, name: item.name, image_url: item.image_url, price: item.current_price })}
+            onPress={() =>
+              toggleFavorite({
+                ean: item.ean,
+                name: item.name,
+                image_url: item.image_url,
+                price: item.current_price,
+              })
+            }
             hitSlop={8}
           >
-            <Ionicons name={starred ? 'star' : 'star-outline'} size={16} color={starred ? '#F5A623' : '#bbb'} />
+            <Ionicons
+              name={starred ? 'star' : 'star-outline'}
+              size={16}
+              color={starred ? '#F5A623' : '#bbb'}
+            />
           </Pressable>
           <Pressable onPress={() => onSelect(item)} hitSlop={8}>
             <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
@@ -604,8 +650,13 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
       <Pressable style={styles.modalBackdrop} onPress={onClose} />
       <View style={styles.modalSheet}>
         <View style={styles.modalHandle} />
-        <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.modalTitle} numberOfLines={2}>{deal.name}</Text>
+        <ScrollView
+          contentContainerStyle={styles.modalContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.modalTitle} numberOfLines={2}>
+            {deal.name}
+          </Text>
           {deal.brand ? <Text style={styles.modalBrand}>{deal.brand}</Text> : null}
           <View style={styles.modalPriceRow}>
             <Text style={styles.modalPrice}>
@@ -640,7 +691,9 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
           {deal.price_source === 'tjek' ? (
             <Text style={styles.validUntilModal}>
               Ukestilbud fra kundeavisen
-              {formatValidUntil(deal.valid_until) ? ` · gjelder til ${formatValidUntil(deal.valid_until)}` : ''}
+              {formatValidUntil(deal.valid_until)
+                ? ` · gjelder til ${formatValidUntil(deal.valid_until)}`
+                : ''}
             </Text>
           ) : history.length >= 2 ? (
             <PriceChart points={history} currentPrice={deal.current_price} />
@@ -669,7 +722,13 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   return ticks;
 }
 
-function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPrice: number | null }) {
+function PriceChart({
+  points,
+  currentPrice,
+}: {
+  points: PricePoint[];
+  currentPrice: number | null;
+}) {
   const W = 300;
   const H = 150;
   const PAD = { top: 12, bottom: 28, left: 42, right: 10 };
@@ -691,7 +750,10 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p.price).toFixed(1)}`)
     .join(' ');
 
-  const fmtDate = (d: string) => { const [, m, day] = d.split('-'); return `${day}.${m}`; };
+  const fmtDate = (d: string) => {
+    const [, m, day] = d.split('-');
+    return `${day}.${m}`;
+  };
   const dateAt = (i: number) => (points[i]?.date ? fmtDate(points[i].date) : '');
   const yTicks = niceTicks(minP, maxP, 4);
   const xTickIdxs =
@@ -699,7 +761,12 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
       ? [0, points.length - 1]
       : points.length <= 5
         ? [0, Math.floor((points.length - 1) / 2), points.length - 1]
-        : [0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1];
+        : [
+            0,
+            Math.floor((points.length - 1) / 3),
+            Math.floor(((points.length - 1) * 2) / 3),
+            points.length - 1,
+          ];
 
   return (
     <View style={styles.chartWrap}>
@@ -719,8 +786,22 @@ function PriceChart({ points, currentPrice }: { points: PricePoint[]; currentPri
             />
           );
         })}
-        <Line x1={PAD.left} y1={PAD.top} x2={PAD.left} y2={PAD.top + chartH} stroke="#d0d0d4" strokeWidth={1} />
-        <Line x1={PAD.left} y1={PAD.top + chartH} x2={PAD.left + chartW} y2={PAD.top + chartH} stroke="#d0d0d4" strokeWidth={1} />
+        <Line
+          x1={PAD.left}
+          y1={PAD.top}
+          x2={PAD.left}
+          y2={PAD.top + chartH}
+          stroke="#d0d0d4"
+          strokeWidth={1}
+        />
+        <Line
+          x1={PAD.left}
+          y1={PAD.top + chartH}
+          x2={PAD.left + chartW}
+          y2={PAD.top + chartH}
+          stroke="#d0d0d4"
+          strokeWidth={1}
+        />
         {yTicks.map((tick) => (
           <SvgText
             key={`yl-${tick}`}
@@ -814,7 +895,12 @@ function CampaignBadge({ text }: { text: string }) {
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list: { padding: 12, gap: 8 },
-  stickyHeader: { backgroundColor: '#f5f5f7', paddingBottom: 8, marginHorizontal: -12, paddingHorizontal: 12 },
+  stickyHeader: {
+    backgroundColor: '#f5f5f7',
+    paddingBottom: 8,
+    marginHorizontal: -12,
+    paddingHorizontal: 12,
+  },
   headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
   headerSub: { color: '#666' },
   headerMeta: { fontSize: 12, color: '#888' },

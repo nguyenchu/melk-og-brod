@@ -14,12 +14,17 @@
  *   npx tsx sync.ts            # full sync + push
  *   DRY_RUN=1 npx tsx sync.ts  # hent + regn, men ikke skriv til Supabase
  */
-import './env.js';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { searchProducts, type KassalSearchProduct, type KassalPricePoint } from './kassal.js';
+import './env.js';
+import { searchProducts, type KassalPricePoint, type KassalSearchProduct } from './kassal.js';
 import { SEED_TERMS } from './seeds.js';
-import { fetchNorwegianCatalogs, fetchCatalogOffers, catalogChain, type TjekOffer } from './tjek.js';
+import {
+  catalogChain,
+  fetchCatalogOffers,
+  fetchNorwegianCatalogs,
+  type TjekOffer,
+} from './tjek.js';
 
 const OUT_DIR = process.env.OUT_DIR ?? './out'; // hvor products.json skrives
 const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
@@ -38,7 +43,8 @@ const HISTORY_KEEP = 20; // antall historikkpunkter vi lagrer (holder JSON-fila 
 // Utelater (a) rene nettbutikker/priskilder som ikke er i Kassals /physical-stores
 // (Oda, Engrosnett, Holdbart, godterinett) og (b) fysiske, men ikke-dagligvare
 // varehus (Europris = vari-/lavprisvarehus). Overstyr via env EXCLUDED_CHAINS.
-const DEFAULT_EXCLUDED = 'Oda,Engrosnett,Holdbart,Slowly.no,FastCandy.no,Leske.no,Europris,Havaristen';
+const DEFAULT_EXCLUDED =
+  'Oda,Engrosnett,Holdbart,Slowly.no,FastCandy.no,Leske.no,Europris,Havaristen';
 const EXCLUDED_CHAINS = new Set(
   (process.env.EXCLUDED_CHAINS ?? DEFAULT_EXCLUDED)
     .split(',')
@@ -62,7 +68,12 @@ type StoreOffer = {
 
 // Det slanke butikk-tilbudet som faktisk lagres i products.json (det appen rendrer).
 // url/logo/unit_price/median droppes – de var ubrukt og veide ~1,2 MB.
-type OutOffer = { chain: string | null; code: string | null; price: number; drop_pct: number | null };
+type OutOffer = {
+  chain: string | null;
+  code: string | null;
+  price: number;
+  drop_pct: number | null;
+};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -79,7 +90,10 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function historyPoints(rows: KassalPricePoint[] | undefined, sinceMs: number): { date: string; price: number }[] {
+function historyPoints(
+  rows: KassalPricePoint[] | undefined,
+  sinceMs: number,
+): { date: string; price: number }[] {
   const out: { date: string; price: number }[] = [];
   for (const p of rows ?? []) {
     const price = num(p.price);
@@ -108,12 +122,18 @@ function newestPriceMs(rows: KassalPricePoint[] | undefined): number | null {
 
 function bestProductMeta(rows: KassalSearchProduct[]) {
   const withImage = rows.find((r) => r.image) ?? rows[0];
-  const name = rows.map((r) => r.name).filter(Boolean).sort((a, b) => b.length - a.length)[0] ?? withImage.name;
+  const name =
+    rows
+      .map((r) => r.name)
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)[0] ?? withImage.name;
   return {
     name,
     brand: rows.find((r) => r.brand)?.brand ?? null,
     image_url: withImage.image ?? null,
-    category: rows.find((r) => Array.isArray(r.category) && r.category[0]?.name)?.category?.[0]?.name ?? null,
+    category:
+      rows.find((r) => Array.isArray(r.category) && r.category[0]?.name)?.category?.[0]?.name ??
+      null,
   };
 }
 
@@ -222,7 +242,12 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     price_source: headline.offer.drop_pct != null ? 'median' : null,
     drop_pct: headline.offer.drop_pct,
     campaign_text: null,
-    stores: sortedOffers.map((o) => ({ chain: o.chain, code: o.code, price: o.price, drop_pct: o.drop_pct })),
+    stores: sortedOffers.map((o) => ({
+      chain: o.chain,
+      code: o.code,
+      price: o.price,
+      drop_pct: o.drop_pct,
+    })),
     // Prishistorikk lagres bare for tilbud (kun de viser graf), så fila holdes liten
     // nok til at appen kan cache den (AsyncStorage/localStorage ~5–6 MB).
     price_history: headline.offer.drop_pct != null && history.length ? history : null,
@@ -269,26 +294,25 @@ const SKIP_TJEK = process.env.SKIP_TJEK === '1' || process.env.SKIP_TJEK === 'tr
 // Kun rene dagligvare-kjeder. Eksakt match holder bygg/møbel/elektro ute
 // (f.eks. «Obs» = hypermarked tas med, «Obs! Bygg» ikke). Europris er bevisst
 // utelatt (vari-/lavprisvarehus, ikke dagligvare).
-const TJEK_GROCERY = new Set(
-  [
-    'kiwi',
-    'rema 1000',
-    'meny',
-    'spar',
-    'eurospar',
-    'joker',
-    'bunnpris',
-    'extra',
-    'obs',
-    'coop mega',
-    'coop prix',
-    'coop marked',
-    'coop extra',
-    'matkroken',
-    'jacobs',
-    'nærbutikken',
-  ],
-);
+const TJEK_GROCERY = new Set([
+  'kiwi',
+  'rema 1000',
+  'meny',
+  'spar',
+  'eurospar',
+  'joker',
+  'bunnpris',
+  'extra',
+  'obs',
+  'coop mega',
+  'coop prix',
+  'coop marked',
+  'coop extra',
+  'matkroken',
+  'jacobs',
+  'nærbutikken',
+  'gigaboks',
+]);
 
 // Tjek-overskrifter er ofte i VERSALER. Gjør dem til normal kasus så de ikke
 // roper i en liste der Kassal-navn er blandet kasus. Allerede blandede navn røres ikke.
@@ -419,9 +443,17 @@ async function main() {
   );
 
   // Vis et par eksempler så vi ser at transformen er riktig.
-  for (const r of rows.filter((r) => r.drop_pct != null).sort((a, b) => (b.drop_pct ?? 0) - (a.drop_pct ?? 0)).slice(0, 8)) {
-    const cheap = r.cheapest_chain && r.cheapest_price < r.current_price ? `, billigst ${r.cheapest_price}@${r.cheapest_chain}` : '';
-    console.log(`  -${r.drop_pct}%  ${r.name}  ${r.current_price}kr @ ${r.chain}  (normal ${r.median_30d}, ${r.stores.length} butikker${cheap})`);
+  for (const r of rows
+    .filter((r) => r.drop_pct != null)
+    .sort((a, b) => (b.drop_pct ?? 0) - (a.drop_pct ?? 0))
+    .slice(0, 8)) {
+    const cheap =
+      r.cheapest_chain && r.cheapest_price < r.current_price
+        ? `, billigst ${r.cheapest_price}@${r.cheapest_chain}`
+        : '';
+    console.log(
+      `  -${r.drop_pct}%  ${r.name}  ${r.current_price}kr @ ${r.chain}  (normal ${r.median_30d}, ${r.stores.length} butikker${cheap})`,
+    );
   }
 
   // Tjek-tilbud (KIWI/REMA/Coop m.fl.) legges til på slutten – egen modell, uten EAN.

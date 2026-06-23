@@ -33,7 +33,7 @@ function normalizeCartItem(
     ...item,
     image_url: item.image_url ?? null,
     drop_pct: item.drop_pct ?? null,
-    campaign_text: isLikelyCampaignText(item.campaign_text) ? item.campaign_text ?? null : null,
+    campaign_text: isLikelyCampaignText(item.campaign_text) ? (item.campaign_text ?? null) : null,
     quantity: Math.max(1, item.quantity ?? 1),
     deal_expired: item.deal_expired ?? false,
   };
@@ -47,13 +47,16 @@ async function loadFromStorage(): Promise<CartItem[]> {
   if (cache !== null) return cache;
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   cache = raw
-    ? (JSON.parse(raw) as Array<CartItem | (Omit<CartItem, 'quantity' | 'image_url'> & {
-        quantity?: number;
-        image_url?: string | null;
-        campaign_text?: string | null;
-      })>).map(
-        normalizeCartItem,
-      )
+    ? (
+        JSON.parse(raw) as Array<
+          | CartItem
+          | (Omit<CartItem, 'quantity' | 'image_url'> & {
+              quantity?: number;
+              image_url?: string | null;
+              campaign_text?: string | null;
+            })
+        >
+      ).map(normalizeCartItem)
     : [];
   return cache;
 }
@@ -214,7 +217,8 @@ export async function addToCart(input: {
   if (existing) {
     const nextQuantity = existing.quantity + 1;
     const nextCampaignText =
-      existing.campaign_text ?? (isLikelyCampaignText(input.campaign_text) ? input.campaign_text ?? null : null);
+      existing.campaign_text ??
+      (isLikelyCampaignText(input.campaign_text) ? (input.campaign_text ?? null) : null);
     await persist(
       items.map((i) =>
         i.id === existing.id
@@ -223,7 +227,12 @@ export async function addToCart(input: {
       ),
     );
     haptic(Haptics.ImpactFeedbackStyle.Light);
-    return { ...existing, quantity: nextQuantity, campaign_text: nextCampaignText, deal_expired: false };
+    return {
+      ...existing,
+      quantity: nextQuantity,
+      campaign_text: nextCampaignText,
+      deal_expired: false,
+    };
   }
   const item: CartItem = {
     id: uid(),
@@ -232,7 +241,7 @@ export async function addToCart(input: {
     image_url: input.image_url ?? null,
     price: input.price ?? null,
     drop_pct: input.drop_pct ?? null,
-    campaign_text: isLikelyCampaignText(input.campaign_text) ? input.campaign_text ?? null : null,
+    campaign_text: isLikelyCampaignText(input.campaign_text) ? (input.campaign_text ?? null) : null,
     quantity: 1,
     checked: false,
     added_at: new Date().toISOString(),
@@ -274,9 +283,7 @@ export async function updateQuantity(id: string, quantity: number) {
     await persist(items.filter((i) => i.id !== id));
     return;
   }
-  await persist(
-    items.map((i) => (i.id === id ? { ...i, quantity, deal_expired: false } : i)),
-  );
+  await persist(items.map((i) => (i.id === id ? { ...i, quantity, deal_expired: false } : i)));
 }
 
 export async function clearChecked() {

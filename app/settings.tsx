@@ -40,9 +40,15 @@ export default function SettingsScreen() {
       </Section>
 
       <Section title="Personvern">
-        <ActionRow icon="shield-checkmark-outline" label="Personvernerklæring" onPress={onOpenPrivacy} chevron />
+        <ActionRow
+          icon="shield-checkmark-outline"
+          label="Personvernerklæring"
+          onPress={onOpenPrivacy}
+          chevron
+        />
         <Hint>
-          Handlelista lagres lokalt på telefonen din. Vi samler ikke brukerkontoer, plassering eller analytikk.
+          Handlelista lagres lokalt på telefonen din. Vi samler ikke brukerkontoer, plassering eller
+          analytikk.
         </Hint>
       </Section>
 
@@ -91,7 +97,10 @@ function ActionRow({
   chevron?: boolean;
 }) {
   return (
-    <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={onPress}
+    >
       <View style={styles.actionLabel}>
         <Ionicons name={icon} size={18} color="#E10A0A" />
         <Text style={[styles.rowLabel, { color: '#111' }]}>{label}</Text>
