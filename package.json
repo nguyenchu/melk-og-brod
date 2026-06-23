@@ -6,6 +6,7 @@
     "start": "expo start",
     "sync": "npm --prefix scripts/kassal-sync install && npm --prefix scripts/kassal-sync run sync",
     "android": "expo start --android",
+    "android:go": "adb reverse tcp:8081 tcp:8081 && adb shell am start -a android.intent.action.VIEW -d exp://127.0.0.1:8081",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
