@@ -268,6 +268,7 @@ export default function DealsScreen() {
   );
   const effectiveChain = selectedChain.id === COOP_FILTER_ID ? selectedCoopChain : selectedChain;
   const showCoopFilters = selectedChain.id === COOP_FILTER_ID;
+  const coopChipLabel = `Coop · ${selectedCoopChain.label} ${selectedCoopChain.count}`;
 
   const filteredDeals = useMemo(() => {
     const matches = (deals ?? []).filter((deal) => productMatchesChain(deal, effectiveChain));
@@ -384,62 +385,67 @@ export default function DealsScreen() {
                 >
                   {chainOptions.map((option) => {
                     const active = option.id === selectedChain.id;
+                    const isCoop = option.id === COOP_FILTER_ID;
                     return (
                       <Pressable
                         key={option.id}
-                        onPress={() => selectChain(option.id)}
+                        onPress={() => {
+                          if (isCoop && active) {
+                            setCoopMenuOpen((open) => !open);
+                            return;
+                          }
+                          selectChain(option.id);
+                          if (isCoop) setCoopMenuOpen(true);
+                        }}
                         style={[
                           styles.filterChip,
+                          isCoop && styles.filterChipCoop,
                           option.secondary && styles.filterChipSecondary,
                           active && styles.filterChipActive,
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.filterChipText,
-                            option.secondary && styles.filterChipTextSecondary,
-                            active && styles.filterChipTextActive,
-                          ]}
-                        >
-                          {option.label} {option.count}
-                        </Text>
+                        <View style={styles.filterChipContent}>
+                          <Text
+                            style={[
+                              styles.filterChipText,
+                              option.secondary && styles.filterChipTextSecondary,
+                              active && styles.filterChipTextActive,
+                            ]}
+                          >
+                            {isCoop ? coopChipLabel : `${option.label} ${option.count}`}
+                          </Text>
+                          {isCoop ? (
+                            <Ionicons
+                              name={coopMenuOpen && active ? 'chevron-up' : 'chevron-down'}
+                              size={14}
+                              color={active ? '#fff' : '#555'}
+                            />
+                          ) : null}
+                        </View>
                       </Pressable>
                     );
                   })}
                 </ScrollView>
               ) : null}
-              {showCoopFilters ? (
-                <View style={styles.coopDropdown}>
-                  <Pressable
-                    onPress={() => setCoopMenuOpen((open) => !open)}
-                    style={[styles.coopDropdownButton, coopMenuOpen && styles.coopDropdownButtonOpen]}
-                  >
-                    <Text style={styles.coopDropdownButtonText}>
-                      {selectedCoopChain.label} {selectedCoopChain.count}
-                    </Text>
-                    <Ionicons name={coopMenuOpen ? 'chevron-up' : 'chevron-down'} size={15} color="#555" />
-                  </Pressable>
-                  {coopMenuOpen ? (
-                    <View style={styles.coopDropdownMenu}>
-                      {coopOptions.map((option) => {
-                        const active = option.id === selectedCoopChain.id;
-                        return (
-                          <Pressable
-                            key={option.id}
-                            onPress={() => selectCoopChain(option.id)}
-                            style={[styles.coopDropdownItem, active && styles.coopDropdownItemActive]}
-                          >
-                            <Text style={[styles.coopDropdownItemText, active && styles.coopDropdownItemTextActive]}>
-                              {option.label}
-                            </Text>
-                            <Text style={[styles.coopDropdownItemCount, active && styles.coopDropdownItemTextActive]}>
-                              {option.count}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
+              {showCoopFilters && coopMenuOpen ? (
+                <View style={styles.coopDropdownMenu}>
+                  {coopOptions.map((option) => {
+                    const active = option.id === selectedCoopChain.id;
+                    return (
+                      <Pressable
+                        key={option.id}
+                        onPress={() => selectCoopChain(option.id)}
+                        style={[styles.coopDropdownItem, active && styles.coopDropdownItemActive]}
+                      >
+                        <Text style={[styles.coopDropdownItemText, active && styles.coopDropdownItemTextActive]}>
+                          {option.label}
+                        </Text>
+                        <Text style={[styles.coopDropdownItemCount, active && styles.coopDropdownItemTextActive]}>
+                          {option.count}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : null}
             </>
@@ -820,6 +826,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#f0f0f3',
   },
+  filterChipCoop: { paddingRight: 10 },
+  filterChipContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filterChipSecondary: {
     backgroundColor: '#fafafa',
     borderWidth: 1,
@@ -829,23 +837,10 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
   filterChipTextSecondary: { color: '#888', fontWeight: '500' },
   filterChipTextActive: { color: '#fff' },
-  coopDropdown: { marginTop: 8, alignSelf: 'flex-start', minWidth: 190 },
-  coopDropdownButton: {
-    minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  coopDropdownButtonOpen: { borderColor: '#E10A0A' },
-  coopDropdownButtonText: { fontSize: 13, fontWeight: '700', color: '#333' },
   coopDropdownMenu: {
-    marginTop: 4,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    minWidth: 190,
     borderRadius: 8,
     backgroundColor: '#fff',
     borderWidth: 1,
