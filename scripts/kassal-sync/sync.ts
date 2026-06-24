@@ -327,12 +327,26 @@ function prettyHeading(raw: string): string {
 }
 
 function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | null {
-  const price = num(offer.pricing?.price);
+  let price = num(offer.pricing?.price);
   if (price == null || price <= 0 || price > 10_000) return null;
   // Dropp utløpte tilbud ved bygging, så appen slipper utløpslogikk.
   if (offer.run_till && new Date(offer.run_till).getTime() < now) return null;
 
-  const pre = num(offer.pricing?.pre_price);
+  let pre = num(offer.pricing?.pre_price);
+
+  // Multibuy: «3 for 100» har price = total for HELE pakka (pieces.from = 3),
+  // ikke per stk. Lagre per-stk-pris så handlekurven regner riktig (3 × 33,33 =
+  // 100), og behold framingen som et campaign_text-merke.
+  const pieces = offer.quantity?.pieces;
+  const bundleQty =
+    pieces?.from && pieces.from > 1 ? pieces.from : pieces?.min && pieces.min > 1 ? pieces.min : 1;
+  let campaignText: string | null = null;
+  if (bundleQty > 1) {
+    campaignText = `${bundleQty} for ${round2(price)} kr`;
+    price = round2(price / bundleQty);
+    if (pre != null) pre = round2(pre / bundleQty);
+  }
+
   let drop: number | null = null;
   if (pre != null && pre > price) {
     const pct = round2(((pre - price) / pre) * 100);
@@ -358,7 +372,7 @@ function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | nul
     original_price: pre != null ? round2(pre) : null,
     price_source: 'tjek',
     drop_pct: drop,
-    campaign_text: null,
+    campaign_text: campaignText,
     stores: [],
     price_history: null,
     computed_at: new Date().toISOString(),

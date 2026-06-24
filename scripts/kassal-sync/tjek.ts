@@ -18,6 +18,7 @@ export interface TjekOffer {
   quantity?: {
     unit?: { symbol?: string } | null;
     size?: { from?: number; to?: number } | null;
+    pieces?: { from?: number; to?: number; min?: number | null; max?: number | null } | null;
   } | null;
   images?: { thumb?: string; view?: string; zoom?: string } | null;
   run_from?: string | null;
