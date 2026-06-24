@@ -458,27 +458,43 @@ const DealRow = memo(function DealRow({
           {item.name}
         </Text>
         {showBrand ? <Text style={styles.brand}>{item.brand}</Text> : null}
-        <View style={styles.priceRow}>
-          {currentPriceLabel ? (
-            <Text style={styles.price}>
-              {approximate ? 'ca. ' : ''}
-              {currentPriceLabel}
+        {item.multibuy ? (
+          <>
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>
+                {item.multibuy.quantity} for {item.multibuy.price} kr
+              </Text>
+            </View>
+            <Text style={styles.unitPrice}>
+              {(item.multibuy.price / item.multibuy.quantity).toFixed(2)} kr/stk · normalt{' '}
+              {item.multibuy.single.toFixed(2)} kr
             </Text>
-          ) : null}
-          {beforePriceLabel ? (
-            <Text style={styles.median}>
-              {beforePricePrefix} {approximate ? 'ca. ' : ''}
-              {beforePriceLabel}
-            </Text>
-          ) : null}
-        </View>
-        {isLikelyCampaignText(item.campaign_text) ? (
-          <CampaignBadge text={item.campaign_text!} />
-        ) : null}
+          </>
+        ) : (
+          <>
+            <View style={styles.priceRow}>
+              {currentPriceLabel ? (
+                <Text style={styles.price}>
+                  {approximate ? 'ca. ' : ''}
+                  {currentPriceLabel}
+                </Text>
+              ) : null}
+              {beforePriceLabel ? (
+                <Text style={styles.median}>
+                  {beforePricePrefix} {approximate ? 'ca. ' : ''}
+                  {beforePriceLabel}
+                </Text>
+              ) : null}
+            </View>
+            {isLikelyCampaignText(item.campaign_text) ? (
+              <CampaignBadge text={item.campaign_text!} />
+            ) : null}
+            {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
+          </>
+        )}
         {approximate ? (
           <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
         ) : null}
-        {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
         {validUntilLabel ? (
           <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
         ) : null}
@@ -551,7 +567,11 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
           {deal.brand ? <Text style={styles.modalBrand}>{deal.brand}</Text> : null}
           <View style={styles.modalPriceRow}>
             <Text style={styles.modalPrice}>
-              {deal.current_price != null ? `${deal.current_price.toFixed(2)} kr` : '—'}
+              {deal.multibuy
+                ? `${deal.multibuy.quantity} for ${deal.multibuy.price} kr`
+                : deal.current_price != null
+                  ? `${deal.current_price.toFixed(2)} kr`
+                  : '—'}
             </Text>
             {deal.chain ? <Text style={styles.modalChain}>@ {deal.chain}</Text> : null}
             {deal.drop_pct != null ? (
