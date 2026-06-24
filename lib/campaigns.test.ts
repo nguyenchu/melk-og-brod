@@ -161,6 +161,27 @@ describe('computeCartTotals', () => {
     expect(out.savings).toBeCloseTo(104.86, 2);
   });
 
+  it('prices a fixed-price multibuy ("3 for 100"): 1 = single, 3 = exact bundle', () => {
+    const multibuy = { quantity: 3, price: 100, single: 69.6 };
+    const one = computeCartTotals([
+      { price: 69.6, quantity: 1, campaign_text: '3 for 100 kr', multibuy },
+    ]);
+    expect(one.total).toBeCloseTo(69.6, 2); // 1 stk = vanlig enkeltpris, ikke 33.33
+    const three = computeCartTotals([
+      { price: 69.6, quantity: 3, campaign_text: '3 for 100 kr', multibuy },
+    ]);
+    expect(three.total).toBe(100); // eksakt, ingen 99.99-avrunding
+    expect(three.savings).toBeCloseTo(108.8, 2);
+  });
+
+  it('multibuy charges the remainder at single price (4 = bundle + 1)', () => {
+    const multibuy = { quantity: 3, price: 100, single: 69.6 };
+    const out = computeCartTotals([
+      { price: 69.6, quantity: 4, campaign_text: '3 for 100 kr', multibuy },
+    ]);
+    expect(out.total).toBeCloseTo(169.6, 2); // 100 + 69.60
+  });
+
   it('does not mix items from different campaigns', () => {
     const out = computeCartTotals([
       { price: 50, quantity: 1, campaign_text: '3 for 2' },

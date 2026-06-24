@@ -23,7 +23,12 @@ import {
   updateQuantity,
   useCart,
 } from '@/lib/cart';
-import { computeCartTotals, getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
+import {
+  computeCartTotals,
+  getCampaignKind,
+  isLikelyCampaignText,
+  multibuyLineTotal,
+} from '@/lib/campaigns';
 import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
@@ -37,8 +42,11 @@ type CartListRow =
   | { kind: 'group'; chain: string; subtotal: number; savings: number }
   | { kind: 'item'; item: CartItem };
 
-function getLineTotal(item: Pick<CartItem, 'price' | 'quantity'>) {
+function getLineTotal(item: Pick<CartItem, 'price' | 'quantity' | 'multibuy'>) {
   if (item.price == null) return 0;
+  if (item.multibuy && item.multibuy.quantity > 1) {
+    return multibuyLineTotal(item.quantity, item.multibuy);
+  }
   return item.price * item.quantity;
 }
 
@@ -101,6 +109,7 @@ export default function CartScreen() {
       price: p.current_price,
       drop_pct: p.drop_pct,
       campaign_text: p.campaign_text,
+      multibuy: p.multibuy,
     });
     setQuery('');
     setResults([]);

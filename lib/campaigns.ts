@@ -59,7 +59,21 @@ type BundleItem = {
   quantity: number;
   campaign_text?: string | null;
   checked?: boolean;
+  multibuy?: { quantity: number; price: number; single: number } | null;
 };
+
+/**
+ * Linjesum for en fastpris-multibuy («3 for 100»): hele pakker à `price`, og
+ * resten til `single` (vanlig enkeltpris). 1 stk = single, 3 stk = price, osv.
+ */
+export function multibuyLineTotal(
+  quantity: number,
+  multibuy: { quantity: number; price: number; single: number },
+): number {
+  const bundles = Math.floor(quantity / multibuy.quantity);
+  const remainder = quantity - bundles * multibuy.quantity;
+  return bundles * multibuy.price + remainder * multibuy.single;
+}
 
 export function computeCartTotals<T extends BundleItem>(
   items: readonly T[],
@@ -71,10 +85,15 @@ export function computeCartTotals<T extends BundleItem>(
 } {
   const groups = new Map<string, T[]>();
   const ungrouped: T[] = [];
+  const multibuyItems: T[] = [];
 
   for (const item of items) {
     if (item.checked) continue;
     if (item.price == null || item.price <= 0 || item.quantity <= 0) continue;
+    if (item.multibuy && item.multibuy.quantity > 1) {
+      multibuyItems.push(item);
+      continue;
+    }
     const offer = getBundlePayForOffer(item.campaign_text);
     if (offer && item.campaign_text) {
       const key = item.campaign_text.trim();
@@ -94,6 +113,19 @@ export function computeCartTotals<T extends BundleItem>(
     const line = item.price! * item.quantity;
     naiveSubtotal += line;
     total += line;
+  }
+
+  // Fastpris-multibuy: hver vare regnes for seg (pakker + rest til enkeltpris).
+  for (const item of multibuyItems) {
+    const mb = item.multibuy!;
+    const naive = item.quantity * mb.single;
+    const line = multibuyLineTotal(item.quantity, mb);
+    naiveSubtotal += naive;
+    total += line;
+    const saved = naive - line;
+    if (saved > 0.001) {
+      bundleSavings.push({ campaign: item.campaign_text?.trim() || `${mb.quantity} for ${mb.price} kr`, saved });
+    }
   }
 
   for (const [campaign, group] of groups) {

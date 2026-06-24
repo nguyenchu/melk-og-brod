@@ -37,6 +37,7 @@ function normalizeCartItem(
     campaign_text: isLikelyCampaignText(item.campaign_text) ? (item.campaign_text ?? null) : null,
     quantity: Math.max(1, item.quantity ?? 1),
     deal_expired: item.deal_expired ?? false,
+    multibuy: item.multibuy ?? null,
   };
 }
 
@@ -211,7 +212,11 @@ export async function addToCart(input: {
   price?: number | null;
   drop_pct?: number | null;
   campaign_text?: string | null;
+  multibuy?: { quantity: number; price: number; single: number } | null;
 }): Promise<CartItem> {
+  // For multibuy («3 for 100») er enkeltprisen det 1 stk koster; selve
+  // pakke-prisen håndteres av multibuy-feltet i kurv-matten.
+  const effectivePrice = input.multibuy ? input.multibuy.single : (input.price ?? null);
   const items = await loadFromStorage();
   const normalizedName = input.name.trim().toLowerCase();
   const existing = items.find((i) => {
@@ -234,6 +239,7 @@ export async function addToCart(input: {
               chain: nextChain,
               campaign_text: nextCampaignText,
               deal_expired: false,
+              multibuy: i.multibuy ?? input.multibuy ?? null,
             }
           : i,
       ),
@@ -245,6 +251,7 @@ export async function addToCart(input: {
       chain: nextChain,
       campaign_text: nextCampaignText,
       deal_expired: false,
+      multibuy: existing.multibuy ?? input.multibuy ?? null,
     };
   }
   const item: CartItem = {
@@ -253,13 +260,14 @@ export async function addToCart(input: {
     ean: input.ean ?? null,
     chain: input.chain ?? null,
     image_url: input.image_url ?? null,
-    price: input.price ?? null,
+    price: effectivePrice,
     drop_pct: input.drop_pct ?? null,
     campaign_text: isLikelyCampaignText(input.campaign_text) ? (input.campaign_text ?? null) : null,
     quantity: 1,
     checked: false,
     added_at: new Date().toISOString(),
     deal_expired: false,
+    multibuy: input.multibuy ?? null,
   };
   await persist([...items, item]);
   haptic(Haptics.ImpactFeedbackStyle.Medium);

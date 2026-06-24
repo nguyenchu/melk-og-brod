@@ -403,6 +403,7 @@ const DealRow = memo(function DealRow({
         price: item.current_price,
         drop_pct: item.drop_pct,
         campaign_text: item.campaign_text,
+        multibuy: item.multibuy,
       });
     } catch (e: any) {
       Alert.alert('Kunne ikke legge til', e.message);

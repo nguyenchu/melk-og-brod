@@ -156,6 +156,7 @@ type Row = {
   cheapest_price: number; // billigste nåpris på tvers av kjeder
   cheapest_chain: string | null;
   valid_until: string | null; // kun tjek: når ukestilbudet utløper (run_till)
+  multibuy: { quantity: number; price: number; single: number } | null; // fastpris-multibuy, f.eks. «3 for 100»
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -255,6 +256,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     cheapest_price: cheapest.price,
     cheapest_chain: cheapest.chain,
     valid_until: null,
+    multibuy: null,
   };
 }
 
@@ -341,9 +343,17 @@ function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | nul
   const bundleQty =
     pieces?.from && pieces.from > 1 ? pieces.from : pieces?.min && pieces.min > 1 ? pieces.min : 1;
   let campaignText: string | null = null;
+  let multibuy: { quantity: number; price: number; single: number } | null = null;
   if (bundleQty > 1) {
-    campaignText = `${bundleQty} for ${round2(price)} kr`;
-    price = round2(price / bundleQty);
+    const bundleTotal = round2(price); // pris for HELE pakka, f.eks. 100 for 3
+    // Enkeltpris (det 1 stk koster): vanlig per-stk-pris fra før-prisen, ellers
+    // fall tilbake på pakkeprisen delt på antall.
+    const single = pre != null ? round2(pre / bundleQty) : round2(bundleTotal / bundleQty);
+    multibuy = { quantity: bundleQty, price: bundleTotal, single };
+    campaignText = `${bundleQty} for ${bundleTotal} kr`;
+    // Tilbudslista viser per-stk-pris i tilbudet (33,33) + «før» enkeltpris (69,60);
+    // selve bundle-matten (3 → 100) gjøres i handlekurven via multibuy-feltet.
+    price = round2(bundleTotal / bundleQty);
     if (pre != null) pre = round2(pre / bundleQty);
   }
 
@@ -379,6 +389,7 @@ function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | nul
     cheapest_price: round2(price),
     cheapest_chain: chain,
     valid_until: offer.run_till ?? null,
+    multibuy,
   };
 }
 
