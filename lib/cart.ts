@@ -105,6 +105,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
           current_price: p.current_price,
           drop_pct: p.drop_pct,
           chain: p.chain,
+          multibuy: p.multibuy ?? null,
         },
       ]),
   );
@@ -134,22 +135,31 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
       if (!live) return item;
 
       const nowOnDeal = hasDealSignal(live);
+      // Backfill multibuy for varer lagt til før feltet fantes. For multibuy er
+      // CartItem.price enkeltprisen (single); selve pakke-prisen ligger i multibuy.
+      const liveMultibuy = live.multibuy ?? null;
       const next: CartItem = {
         ...item,
         chain: item.chain ?? live.chain, // backfill kjede for varer lagt til før chain fantes
         image_url: item.image_url ?? live.image_url,
-        price: live.current_price ?? item.price,
+        price: liveMultibuy ? liveMultibuy.single : (live.current_price ?? item.price),
         drop_pct: live.drop_pct,
         campaign_text: live.campaign_text,
         deal_expired: nowOnDeal ? false : item.deal_expired || (hasDealSignal(item) && !nowOnDeal),
+        multibuy: liveMultibuy ?? item.multibuy ?? null,
       };
+      const mbChanged =
+        (next.multibuy?.quantity ?? 0) !== (item.multibuy?.quantity ?? 0) ||
+        (next.multibuy?.price ?? 0) !== (item.multibuy?.price ?? 0) ||
+        (next.multibuy?.single ?? 0) !== (item.multibuy?.single ?? 0);
       if (
         next.chain !== item.chain ||
         next.image_url !== item.image_url ||
         next.price !== item.price ||
         next.drop_pct !== item.drop_pct ||
         next.campaign_text !== item.campaign_text ||
-        next.deal_expired !== item.deal_expired
+        next.deal_expired !== item.deal_expired ||
+        mbChanged
       ) {
         changed = true;
         return next;
