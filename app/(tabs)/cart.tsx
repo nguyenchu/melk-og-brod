@@ -18,7 +18,6 @@ import {
 import {
   addToCart,
   clearChecked,
-  removeFromCart,
   toggleChecked,
   updateQuantity,
   useCart,
@@ -395,7 +394,6 @@ export default function CartScreen() {
                 item={row.item}
                 discontinued={!!row.item.ean && discontinuedEans.has(row.item.ean)}
                 onToggle={toggleChecked}
-                onRemove={removeFromCart}
                 onChangeQuantity={updateQuantity}
               />
             )
@@ -421,7 +419,6 @@ export default function CartScreen() {
                           item={i}
                           discontinued={!!i.ean && discontinuedEans.has(i.ean)}
                           onToggle={toggleChecked}
-                          onRemove={removeFromCart}
                           onChangeQuantity={updateQuantity}
                         />
                       ))}
@@ -688,13 +685,11 @@ const CartRow = memo(function CartRow({
   item,
   discontinued,
   onToggle,
-  onRemove,
   onChangeQuantity,
 }: {
   item: CartItem;
   discontinued: boolean;
   onToggle: (id: string) => void;
-  onRemove: (id: string) => void;
   onChangeQuantity: (id: string, quantity: number) => void;
 }) {
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
@@ -769,11 +764,15 @@ const CartRow = memo(function CartRow({
           <View style={styles.cartActionsRow}>
             <View style={styles.quantityControl}>
               <Pressable
-                onPress={() => onChangeQuantity(item.id, Math.max(1, item.quantity - 1))}
+                onPress={() => onChangeQuantity(item.id, item.quantity - 1)}
                 hitSlop={8}
                 style={styles.quantityButton}
               >
-                <Ionicons name="remove" size={16} color="#444" />
+                <Ionicons
+                  name={item.quantity <= 1 ? 'trash-outline' : 'remove'}
+                  size={16}
+                  color={item.quantity <= 1 ? '#C0392B' : '#444'}
+                />
               </Pressable>
               <TextInput
                 value={value}
@@ -815,9 +814,6 @@ const CartRow = memo(function CartRow({
                 />
               </Pressable>
             ) : null}
-            <Pressable onPress={() => onRemove(item.id)} hitSlop={10} style={styles.removeButton}>
-              <Ionicons name="trash-outline" size={18} color="#999" />
-            </Pressable>
           </View>
         </View>
         {isLikelyCampaignText(item.campaign_text) ? (
