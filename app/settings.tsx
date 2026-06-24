@@ -14,6 +14,7 @@ export default function SettingsScreen() {
   const [resetting, setResetting] = useState(false);
   const version = Constants.expoConfig?.version ?? '—';
   const buildNumber =
+    Constants.nativeBuildVersion ??
     (Constants.expoConfig as any)?.android?.versionCode ??
     (Constants.expoConfig as any)?.ios?.buildNumber ??
     '—';
