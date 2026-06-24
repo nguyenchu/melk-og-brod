@@ -32,6 +32,11 @@ import type { CartItem, MenyProduct } from '@/lib/types';
 
 type SearchMode = 'all' | 'deals';
 
+// Rader i den grupperte handlelista: enten en kjede-overskrift eller en vare.
+type CartListRow =
+  | { kind: 'group'; chain: string; subtotal: number; savings: number }
+  | { kind: 'item'; item: CartItem };
+
 function getLineTotal(item: Pick<CartItem, 'price' | 'quantity'>) {
   if (item.price == null) return 0;
   return item.price * item.quantity;
@@ -91,6 +96,7 @@ export default function CartScreen() {
     await addToCart({
       name: p.name,
       ean: p.ean,
+      chain: p.chain,
       image_url: p.image_url,
       price: p.current_price,
       drop_pct: p.drop_pct,
@@ -103,13 +109,19 @@ export default function CartScreen() {
 
   async function onShare() {
     if (active.length === 0) return;
-    const lines = active.map((i) => {
-      const qty = i.quantity > 1 ? ` (${i.quantity}x)` : '';
-      const price = i.price != null ? ` – ${i.price.toFixed(2)} kr` : '';
-      return `• ${i.name}${qty}${price}`;
+    const blocks = groups.map((g) => {
+      const header = `${g.chain || 'Andre varer'} (${g.subtotal.toFixed(2)} kr):`;
+      const lines = g.items.map((i) => {
+        const qty = i.quantity > 1 ? ` (${i.quantity}x)` : '';
+        const price = i.price != null ? ` – ${i.price.toFixed(2)} kr` : '';
+        return `• ${i.name}${qty}${price}`;
+      });
+      return `${header}\n${lines.join('\n')}`;
     });
+    const savingsLine =
+      totalSavings > 0.005 ? `\n\nDu sparer ${totalSavings.toFixed(2)} kr på kampanjer` : '';
     await Share.share({
-      message: `Handleliste\n\n${lines.join('\n')}\n\nEstimert total: ${total.toFixed(2)} kr`,
+      message: `Handleliste\n\n${blocks.join('\n\n')}${savingsLine}`,
     });
   }
 
@@ -171,9 +183,68 @@ export default function CartScreen() {
     return map;
   }, [active]);
 
-  const cartTotals = useMemo(() => computeCartTotals(active), [active]);
-  const { total, savings } = cartTotals;
-  const showStickyTotal = items.length > 0 && total > 0;
+  // Grupper aktive varer per kjede – en handleliste på tvers av kjeder gir bare
+  // mening som «hva kjøper jeg hvor». Delsum per butikk er det du faktisk betaler;
+  // en sum på tvers av butikker betaler du aldri. Derfor: delsum per gruppe +
+  // samlet besparelse (som ER meningsfull på tvers).
+  const groups = useMemo(() => {
+    const byChain = new Map<string, CartItem[]>();
+    for (const item of active) {
+      const key = item.chain ?? '';
+      const arr = byChain.get(key) ?? [];
+      arr.push(item);
+      byChain.set(key, arr);
+    }
+    return [...byChain.entries()]
+      .map(([chain, groupItems]) => {
+        const totals = computeCartTotals(groupItems);
+        return { chain, items: groupItems, subtotal: totals.total, savings: totals.savings };
+      })
+      .sort((a, b) => {
+        if (!a.chain) return 1; // varer uten kjede (manuelle/favoritter) nederst
+        if (!b.chain) return -1;
+        return a.chain.localeCompare(b.chain, 'nb');
+      });
+  }, [active]);
+
+  const cartRows = useMemo<CartListRow[]>(() => {
+    const out: CartListRow[] = [];
+    for (const g of groups) {
+      out.push({ kind: 'group', chain: g.chain, subtotal: g.subtotal, savings: g.savings });
+      for (const item of g.items) out.push({ kind: 'item', item });
+    }
+    return out;
+  }, [groups]);
+
+  const totalSavings = useMemo(() => groups.reduce((s, g) => s + g.savings, 0), [groups]);
+  const activeItemCount = useMemo(
+    () => active.reduce((sum, item) => sum + item.quantity, 0),
+    [active],
+  );
+  const showStickyTotal = active.length > 0;
+
+  // «I kurven» grupperes også per kjede. computeCartTotals hopper over avhukede
+  // varer, så delsummen her summeres direkte (price * antall).
+  const doneGroups = useMemo(() => {
+    const byChain = new Map<string, CartItem[]>();
+    for (const item of done) {
+      const key = item.chain ?? '';
+      const arr = byChain.get(key) ?? [];
+      arr.push(item);
+      byChain.set(key, arr);
+    }
+    return [...byChain.entries()]
+      .map(([chain, groupItems]) => ({
+        chain,
+        items: groupItems,
+        subtotal: groupItems.reduce((s, i) => s + getLineTotal(i), 0),
+      }))
+      .sort((a, b) => {
+        if (!a.chain) return 1;
+        if (!b.chain) return -1;
+        return a.chain.localeCompare(b.chain, 'nb');
+      });
+  }, [done]);
 
   if (loading) {
     return (
@@ -248,8 +319,8 @@ export default function CartScreen() {
         />
       ) : (
         <FlatList
-          data={active}
-          keyExtractor={(i) => i.id}
+          data={cartRows}
+          keyExtractor={(r) => (r.kind === 'group' ? `g:${r.chain}` : r.item.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           contentContainerStyle={[
             styles.listContent,
@@ -262,23 +333,32 @@ export default function CartScreen() {
                   <Text style={styles.sectionTitle}>Favoritter</Text>
                   <View style={styles.favChips}>
                     {favorites.map((fav) => (
-                      <Pressable
-                        key={fav.ean}
-                        style={styles.favChip}
-                        onPress={() =>
-                          addToCart({
-                            name: fav.name,
-                            ean: fav.ean,
-                            image_url: fav.image_url,
-                            price: fav.price,
-                          })
-                        }
-                      >
-                        <Ionicons name="add" size={14} color="#E10A0A" />
-                        <Text style={styles.favChipText} numberOfLines={1}>
-                          {fav.name}
-                        </Text>
-                      </Pressable>
+                      <View key={fav.ean} style={styles.favChip}>
+                        <Pressable
+                          style={styles.favChipAdd}
+                          hitSlop={6}
+                          onPress={() =>
+                            addToCart({
+                              name: fav.name,
+                              ean: fav.ean,
+                              image_url: fav.image_url,
+                              price: fav.price,
+                            })
+                          }
+                        >
+                          <Ionicons name="add" size={14} color="#E10A0A" />
+                          <Text style={styles.favChipText} numberOfLines={1}>
+                            {fav.name}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.favChipRemove}
+                          hitSlop={8}
+                          onPress={() => toggleFavorite(fav)}
+                        >
+                          <Ionicons name="close" size={14} color="#bbb" />
+                        </Pressable>
+                      </View>
                     ))}
                   </View>
                 </View>
@@ -298,15 +378,19 @@ export default function CartScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <CartRow
-              item={item}
-              discontinued={!!item.ean && discontinuedEans.has(item.ean)}
-              onToggle={toggleChecked}
-              onRemove={removeFromCart}
-              onChangeQuantity={updateQuantity}
-            />
-          )}
+          renderItem={({ item: row }) =>
+            row.kind === 'group' ? (
+              <CartGroupHeader chain={row.chain} subtotal={row.subtotal} savings={row.savings} />
+            ) : (
+              <CartRow
+                item={row.item}
+                discontinued={!!row.item.ean && discontinuedEans.has(row.item.ean)}
+                onToggle={toggleChecked}
+                onRemove={removeFromCart}
+                onChangeQuantity={updateQuantity}
+              />
+            )
+          }
           ListFooterComponent={
             <View>
               {done.length > 0 && (
@@ -319,15 +403,20 @@ export default function CartScreen() {
                       <Text style={styles.clearLink}>Fjern alle</Text>
                     </Pressable>
                   </View>
-                  {done.map((i) => (
-                    <CartRow
-                      key={i.id}
-                      item={i}
-                      discontinued={!!i.ean && discontinuedEans.has(i.ean)}
-                      onToggle={toggleChecked}
-                      onRemove={removeFromCart}
-                      onChangeQuantity={updateQuantity}
-                    />
+                  {doneGroups.map((g) => (
+                    <View key={`done:${g.chain}`}>
+                      <CartGroupHeader chain={g.chain} subtotal={g.subtotal} />
+                      {g.items.map((i) => (
+                        <CartRow
+                          key={i.id}
+                          item={i}
+                          discontinued={!!i.ean && discontinuedEans.has(i.ean)}
+                          onToggle={toggleChecked}
+                          onRemove={removeFromCart}
+                          onChangeQuantity={updateQuantity}
+                        />
+                      ))}
+                    </View>
                   ))}
                 </View>
               )}
@@ -336,7 +425,12 @@ export default function CartScreen() {
         />
       )}
       {showStickyTotal ? (
-        <StickyTotal total={total} savings={savings} searching={showSearchPanel} />
+        <StickyTotal
+          savings={totalSavings}
+          itemCount={activeItemCount}
+          storeCount={groups.length}
+          searching={showSearchPanel}
+        />
       ) : null}
     </View>
   );
@@ -532,29 +626,50 @@ const SearchResultRow = memo(function SearchResultRow({
 });
 
 function StickyTotal({
-  total,
   savings,
+  itemCount,
+  storeCount,
   searching,
 }: {
-  total: number;
   savings: number;
+  itemCount: number;
+  storeCount: number;
   searching: boolean;
 }) {
   const showSavings = savings > 0.005;
+  const countHint = `${itemCount} ${itemCount === 1 ? 'vare' : 'varer'} i ${storeCount} ${
+    storeCount === 1 ? 'butikk' : 'butikker'
+  }`;
   return (
     <View style={styles.stickyTotalWrap}>
       <View style={styles.stickyTotal}>
-        <View>
-          <Text style={styles.totalLabel}>Estimert total</Text>
-          <Text style={styles.totalHint}>
-            {showSavings
-              ? `Du sparer ${savings.toFixed(2)} kr på kampanjer`
-              : searching
-                ? 'Oppdatert mens du søker'
-                : 'Basert på varene i lista'}
-          </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.totalLabel}>{showSavings ? 'Samlet besparelse' : 'Handleliste'}</Text>
+          <Text style={styles.totalHint}>{searching ? 'Oppdatert mens du søker' : countHint}</Text>
         </View>
-        <Text style={styles.totalValue}>{total.toFixed(2)} kr</Text>
+        {showSavings ? <Text style={styles.totalSavingsValue}>−{savings.toFixed(2)} kr</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function CartGroupHeader({
+  chain,
+  subtotal,
+  savings = 0,
+}: {
+  chain: string;
+  subtotal: number;
+  savings?: number;
+}) {
+  return (
+    <View style={styles.groupHeader}>
+      <Text style={styles.groupChain} numberOfLines={1}>
+        {chain || 'Andre varer'}
+      </Text>
+      <View style={styles.groupRight}>
+        {savings > 0.005 ? <Text style={styles.groupSavings}>−{savings.toFixed(0)} kr</Text> : null}
+        <Text style={styles.groupSubtotal}>{subtotal.toFixed(2)} kr</Text>
       </View>
     </View>
   );
@@ -768,7 +883,14 @@ const styles = StyleSheet.create({
   searchModeText: { fontSize: 12, fontWeight: '600', color: '#666' },
   searchModeTextActive: { color: '#fff' },
   searchHint: { color: '#666', fontSize: 12, paddingTop: 4, paddingBottom: 2 },
-  listContent: { paddingHorizontal: 12, paddingBottom: 32, gap: 6 },
+  listContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 32,
+    gap: 6,
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
+  },
   sectionTitle: { fontSize: 13, fontWeight: '600', color: '#666', marginTop: 8, marginBottom: 4 },
   emptyBox: { alignItems: 'center', padding: 48, gap: 12 },
   empty: { color: '#999', textAlign: 'center', paddingHorizontal: 24 },
@@ -999,6 +1121,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 616,
+    alignSelf: 'center',
     backgroundColor: '#fff',
     padding: 14,
     borderRadius: 10,
@@ -1013,6 +1138,29 @@ const styles = StyleSheet.create({
   totalLabel: { color: '#666' },
   totalHint: { color: '#999', fontSize: 12, marginTop: 2 },
   totalValue: { fontWeight: '700' },
+  totalSavingsValue: { fontWeight: '800', fontSize: 16, color: '#0B6B3A' },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 2,
+    paddingHorizontal: 2,
+  },
+  groupChain: { fontSize: 14, fontWeight: '800', color: '#222', flex: 1 },
+  groupRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  groupSavings: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0B6B3A',
+    backgroundColor: '#E6F4EC',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  groupSubtotal: { fontSize: 14, fontWeight: '700', color: '#222' },
   doneSection: { marginTop: 16, gap: 6 },
   doneHeader: {
     flexDirection: 'row',
@@ -1025,13 +1173,20 @@ const styles = StyleSheet.create({
   favChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e2e6',
-    paddingHorizontal: 10,
+    paddingLeft: 10,
+    paddingRight: 6,
     paddingVertical: 5,
     borderRadius: 999,
+  },
+  favChipAdd: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  favChipRemove: {
+    paddingLeft: 4,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: '#e2e2e6',
   },
   favChipText: { fontSize: 13, color: '#333', maxWidth: 140 },
 });

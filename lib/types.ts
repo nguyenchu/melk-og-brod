@@ -35,6 +35,7 @@ export type CartItem = {
   id: string;
   name: string;
   ean: string | null;
+  chain: string | null; // hvilken kjede tilbudet kom fra – gruppering per butikk
   image_url: string | null;
   price: number | null;
   drop_pct: number | null;

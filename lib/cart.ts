@@ -31,6 +31,7 @@ function normalizeCartItem(
 ): CartItem {
   return {
     ...item,
+    chain: item.chain ?? null,
     image_url: item.image_url ?? null,
     drop_pct: item.drop_pct ?? null,
     campaign_text: isLikelyCampaignText(item.campaign_text) ? (item.campaign_text ?? null) : null,
@@ -102,6 +103,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
           campaign_text: isLikelyCampaignText(p.campaign_text) ? p.campaign_text : null,
           current_price: p.current_price,
           drop_pct: p.drop_pct,
+          chain: p.chain,
         },
       ]),
   );
@@ -133,6 +135,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
       const nowOnDeal = hasDealSignal(live);
       const next: CartItem = {
         ...item,
+        chain: item.chain ?? live.chain, // backfill kjede for varer lagt til før chain fantes
         image_url: item.image_url ?? live.image_url,
         price: live.current_price ?? item.price,
         drop_pct: live.drop_pct,
@@ -140,6 +143,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
         deal_expired: nowOnDeal ? false : item.deal_expired || (hasDealSignal(item) && !nowOnDeal),
       };
       if (
+        next.chain !== item.chain ||
         next.image_url !== item.image_url ||
         next.price !== item.price ||
         next.drop_pct !== item.drop_pct ||
@@ -202,6 +206,7 @@ export function useCart() {
 export async function addToCart(input: {
   name: string;
   ean?: string | null;
+  chain?: string | null;
   image_url?: string | null;
   price?: number | null;
   drop_pct?: number | null;
@@ -219,10 +224,17 @@ export async function addToCart(input: {
     const nextCampaignText =
       existing.campaign_text ??
       (isLikelyCampaignText(input.campaign_text) ? (input.campaign_text ?? null) : null);
+    const nextChain = existing.chain ?? input.chain ?? null;
     await persist(
       items.map((i) =>
         i.id === existing.id
-          ? { ...i, quantity: nextQuantity, campaign_text: nextCampaignText, deal_expired: false }
+          ? {
+              ...i,
+              quantity: nextQuantity,
+              chain: nextChain,
+              campaign_text: nextCampaignText,
+              deal_expired: false,
+            }
           : i,
       ),
     );
@@ -230,6 +242,7 @@ export async function addToCart(input: {
     return {
       ...existing,
       quantity: nextQuantity,
+      chain: nextChain,
       campaign_text: nextCampaignText,
       deal_expired: false,
     };
@@ -238,6 +251,7 @@ export async function addToCart(input: {
     id: uid(),
     name: input.name,
     ean: input.ean ?? null,
+    chain: input.chain ?? null,
     image_url: input.image_url ?? null,
     price: input.price ?? null,
     drop_pct: input.drop_pct ?? null,
