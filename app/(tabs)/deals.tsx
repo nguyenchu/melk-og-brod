@@ -108,6 +108,17 @@ function productMatchesChain(product: MenyProduct, option: ChainOption) {
   return selectedChains.has(normalizeChainName(product.chain));
 }
 
+// Datakilden regenereres nattlig av kassal-sync. Er den eldre enn dette, har
+// syncen stoppet, og prisene kan ha endret seg for lengst – da sier vi det
+// tydelig i stedet for å la «Oppdatert for N d siden» stå som liten gråtekst.
+const STALE_AFTER_DAYS = 3;
+
+function isCatalogStale(value: string) {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return false;
+  return Date.now() - timestamp > STALE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function formatComputedAt(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Oppdatert tidspunkt ukjent';
@@ -225,6 +236,7 @@ export default function DealsScreen() {
   }, [load]);
 
   const latestComputedAt = deals?.[0]?.computed_at ?? null;
+  const catalogStale = latestComputedAt ? isCatalogStale(latestComputedAt) : false;
 
   async function onRefresh() {
     setRefreshing(true);
@@ -279,7 +291,11 @@ export default function DealsScreen() {
                       Viser sist hentede tilbud · ingen nettilgang
                     </Text>
                   ) : latestComputedAt ? (
-                    <Text style={styles.headerMeta}>{formatComputedAt(latestComputedAt)}</Text>
+                    <Text style={catalogStale ? styles.staleNotice : styles.headerMeta}>
+                      {catalogStale
+                        ? `Prisene kan være utdaterte · ${formatComputedAt(latestComputedAt)}`
+                        : formatComputedAt(latestComputedAt)}
+                    </Text>
                   ) : null}
                 </View>
                 {featuredOptions.length > 1 ? (
@@ -824,6 +840,7 @@ const styles = StyleSheet.create({
   headerSub: { color: '#666' },
   headerMeta: { fontSize: 12, color: '#888' },
   cacheNotice: { fontSize: 12, color: '#A85C00' },
+  staleNotice: { fontSize: 12, color: '#A85C00', fontWeight: '600' },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   filterChip: {
     paddingHorizontal: 14,
