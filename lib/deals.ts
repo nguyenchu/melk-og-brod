@@ -21,7 +21,8 @@ export async function saveCachedDeals(deals: MenyProduct[]) {
 export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
   const raw = await AsyncStorage.getItem(DEALS_CACHE_KEY);
   if (!raw) return null;
-  return JSON.parse(raw) as MenyProduct[];
+  // Cachen kan være fra forrige uke (offline-fallback) – ikke vis utløpte tilbud.
+  return (JSON.parse(raw) as MenyProduct[]).filter((product) => !isExpiredOffer(product));
 }
 
 function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_source'>) {
@@ -34,10 +35,28 @@ function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_s
   );
 }
 
+// Tjek sender «2026-09-23T21:59:59+0000»; legg inn kolon i tidssonen så
+// strengen er gyldig ISO og parses likt i alle JS-motorer (også Hermes).
+function parseValidUntil(value: string): number {
+  return Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+}
+
+// Ukestilbud (tjek) har en sluttdato. Syncen kjører bare om natta, så uten
+// denne sjekken vises gårsdagens tilbud fram til neste sync.
+export function isExpiredOffer(
+  product: Pick<MenyProduct, 'valid_until'>,
+  now: number = Date.now(),
+) {
+  if (!product.valid_until) return false;
+  const until = parseValidUntil(product.valid_until);
+  return Number.isFinite(until) && until < now;
+}
+
 export function isActiveDealProduct(
-  product: Pick<MenyProduct, 'campaign_text' | 'price_source' | 'drop_pct'>,
+  product: Pick<MenyProduct, 'campaign_text' | 'price_source' | 'drop_pct' | 'valid_until'>,
   minDropPct = ACTIVE_DEAL_DROP_PCT,
 ) {
+  if (isExpiredOffer(product)) return false;
   return hasCampaignSignal(product) || (product.drop_pct ?? 0) >= minDropPct;
 }
 
@@ -339,16 +358,21 @@ function tidyDisplayName(name: string): string {
     .trim();
 }
 
+// Like navn i ulike kjeder skilles allerede av kjede-merket på kortet, så
+// bare like navn i samme kjede får EAN-suffiks. Tjek-rader har en syntetisk
+// id i stedet for EAN (tjek:…), som ikke sier brukeren noe – de får ingen.
 function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
   const counts = new Map<string, number>();
+  const keyOf = (clean: string, product: MenyProduct) => `${product.chain ?? ''}|${clean}`;
   const prepared = products.map((product) => {
     const clean = tidyDisplayName(product.name);
-    counts.set(clean, (counts.get(clean) ?? 0) + 1);
+    const key = keyOf(clean, product);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
     return { product, clean };
   });
   return prepared.map(({ product, clean }) => {
-    const collides = (counts.get(clean) ?? 0) > 1;
-    if (collides && product.ean) {
+    const collides = (counts.get(keyOf(clean, product)) ?? 0) > 1;
+    if (collides && product.ean && product.price_source !== 'tjek') {
       return { ...product, name: `${clean} · #${product.ean.slice(-4)}` };
     }
     if (clean !== product.name) return { ...product, name: clean };

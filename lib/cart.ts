@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
 import { getCatalog, hasDataConfig } from './catalog';
+import { isExpiredOffer } from './deals';
 import type { CartItem, MenyProduct } from './types';
 
 function haptic(style: Haptics.ImpactFeedbackStyle | 'selection') {
@@ -43,6 +44,13 @@ function normalizeCartItem(
 
 function hasDealSignal(item: { drop_pct?: number | null; campaign_text?: string | null }): boolean {
   return (item.drop_pct ?? 0) >= 5 || isLikelyCampaignText(item.campaign_text);
+}
+
+// Eldre versjoner la «· #xxxx» (slutten av den syntetiske tjek-id-en) på
+// navnet til tjek-tilbud. Det sier ikke brukeren noe, så fjern det.
+function tidyTjekName(item: Pick<CartItem, 'name' | 'ean'>): string {
+  if (!item.ean?.startsWith('tjek:')) return item.name;
+  return item.name.replace(/ · #\S{1,4}$/, '');
 }
 
 async function loadFromStorage(): Promise<CartItem[]> {
@@ -106,6 +114,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
           drop_pct: p.drop_pct,
           chain: p.chain,
           multibuy: p.multibuy ?? null,
+          expired: isExpiredOffer(p),
         },
       ]),
   );
@@ -134,12 +143,13 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
       // the cart screen flags these separately via fetchDiscontinuedEans.
       if (!live) return item;
 
-      const nowOnDeal = hasDealSignal(live);
+      const nowOnDeal = !live.expired && hasDealSignal(live);
       // Backfill multibuy for varer lagt til før feltet fantes. For multibuy er
       // CartItem.price enkeltprisen (single); selve pakke-prisen ligger i multibuy.
       const liveMultibuy = live.multibuy ?? null;
       const next: CartItem = {
         ...item,
+        name: tidyTjekName(item),
         chain: item.chain ?? live.chain, // backfill kjede for varer lagt til før chain fantes
         image_url: item.image_url ?? live.image_url,
         price: liveMultibuy ? liveMultibuy.single : (live.current_price ?? item.price),
@@ -153,6 +163,7 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
         (next.multibuy?.price ?? 0) !== (item.multibuy?.price ?? 0) ||
         (next.multibuy?.single ?? 0) !== (item.multibuy?.single ?? 0);
       if (
+        next.name !== item.name ||
         next.chain !== item.chain ||
         next.image_url !== item.image_url ||
         next.price !== item.price ||
