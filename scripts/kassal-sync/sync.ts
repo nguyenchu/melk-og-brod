@@ -484,8 +484,11 @@ async function main() {
   let deals = 0;
   for (const [ean, group] of byEan) {
     for (const r of group) {
+      // Kassal sender også rader uten butikk og pris (produktdata alene) –
+      // de brukes aldri, så tell bare butikkpriser buildRow faktisk vurderer.
+      if (!r.store?.name || !(num(r.current_price) ?? 0)) continue;
       if (!r.price_history?.length) {
-        const chain = r.store?.name ?? 'ukjent';
+        const chain = r.store.name;
         noHistoryByChain.set(chain, (noHistoryByChain.get(chain) ?? 0) + 1);
       }
     }
