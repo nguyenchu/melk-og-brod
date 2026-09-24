@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
 vi.mock('./catalog', () => ({}));
 
-const { isActiveDealProduct, isExpiredOffer } = await import('./deals');
+const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer } = await import('./deals');
 
 const NOW = Date.parse('2026-09-24T08:00:00+02:00');
 
@@ -33,5 +33,18 @@ describe('isActiveDealProduct', () => {
     };
     expect(isActiveDealProduct(offer)).toBe(false);
     expect(isActiveDealProduct({ ...offer, valid_until: '2999-01-01T00:00:00+0000' })).toBe(true);
+  });
+});
+
+describe('isUpcomingOffer', () => {
+  it('flags a Friday-only offer on Thursday, and not once Friday has started', () => {
+    const fridayOnly = { valid_from: '2026-09-24T22:00:00.000Z' }; // fredag 00:00 i Oslo
+    expect(isUpcomingOffer(fridayOnly, NOW)).toBe(true); // torsdag 08:00
+    expect(isUpcomingOffer(fridayOnly, Date.parse('2026-09-25T08:00:00+02:00'))).toBe(false);
+  });
+
+  it('treats offers without a start date as running', () => {
+    expect(isUpcomingOffer({ valid_from: null }, NOW)).toBe(false);
+    expect(isUpcomingOffer({}, NOW)).toBe(false);
   });
 });

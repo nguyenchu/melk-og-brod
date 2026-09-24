@@ -16,7 +16,7 @@ import {
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
-import { fetchTopDeals, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
+import { fetchTopDeals, isUpcomingOffer, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
 import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
@@ -75,7 +75,10 @@ function featuredOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
     ...option,
     count: countChains(option.chains, counts),
   })).sort((a, b) => a.label.localeCompare(b.label, 'nb'));
-  return [{ id: ALL_CHAINS, label: ALL_CHAINS, chains: null, count: deals?.length ?? 0 }, ...featured];
+  return [
+    { id: ALL_CHAINS, label: ALL_CHAINS, chains: null, count: deals?.length ?? 0 },
+    ...featured,
+  ];
 }
 
 // Alle øvrige kjeder (ikke blant de utvalgte), alfabetisk. Ligger bak «Flere».
@@ -89,7 +92,12 @@ function moreOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
   }
   return Array.from(present)
     .filter(([key]) => !FEATURED_CHAIN_MEMBERS.has(key))
-    .map(([key, chain]) => ({ id: chain, label: chain, chains: [chain], count: counts.get(key) ?? 0 }))
+    .map(([key, chain]) => ({
+      id: chain,
+      label: chain,
+      chains: [chain],
+      count: counts.get(key) ?? 0,
+    }))
     .sort((a, b) => a.label.localeCompare(b.label, 'nb'));
 }
 
@@ -144,6 +152,29 @@ function formatValidUntil(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short' }).format(date);
+}
+
+// «Gjelder fre. 25.–lør. 26. sep.» for tilbud som ikke har startet ennå, så en
+// fredagspris ikke ser ut som dagens pris.
+function formatUpcomingWindow(deal: Pick<MenyProduct, 'valid_from' | 'valid_until'>) {
+  if (!isUpcomingOffer(deal) || !deal.valid_from) return null;
+  const toDate = (value: string | null | undefined) => {
+    const date = value ? new Date(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : null;
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  };
+  const format = (date: Date, withMonth: boolean) =>
+    new Intl.DateTimeFormat('nb-NO', {
+      weekday: 'short',
+      day: 'numeric',
+      ...(withMonth ? { month: 'short' } : {}),
+    }).format(date);
+  const from = toDate(deal.valid_from);
+  const until = toDate(deal.valid_until);
+  if (!from) return null;
+  if (!until || until.toDateString() === from.toDateString()) {
+    return `Gjelder ${format(from, true)}`;
+  }
+  return `Gjelder ${format(from, false)}–${format(until, true)}`;
 }
 
 function shouldShowBrand(name: string, brand: string | null | undefined) {
@@ -445,7 +476,8 @@ const DealRow = memo(function DealRow({
   const currentPriceLabel = formatDisplayPrice(item.current_price, approximate);
   const beforePriceLabel = formatDisplayPrice(item.median_30d, approximate);
   const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
-  const validUntilLabel = isWeekly ? formatValidUntil(item.valid_until) : null;
+  const upcomingLabel = isWeekly ? formatUpcomingWindow(item) : null;
+  const validUntilLabel = isWeekly && !upcomingLabel ? formatValidUntil(item.valid_until) : null;
   const unitPriceLabel = formatUnitPriceLabel({
     name: item.name,
     price: item.current_price,
@@ -511,7 +543,9 @@ const DealRow = memo(function DealRow({
         {approximate ? (
           <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
         ) : null}
-        {validUntilLabel ? (
+        {upcomingLabel ? (
+          <Text style={[styles.validUntil, styles.validUpcoming]}>{upcomingLabel}</Text>
+        ) : validUntilLabel ? (
           <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
         ) : null}
       </View>
@@ -618,9 +652,11 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
           {deal.price_source === 'tjek' ? (
             <Text style={styles.validUntilModal}>
               Ukestilbud fra kundeavisen
-              {formatValidUntil(deal.valid_until)
-                ? ` · gjelder til ${formatValidUntil(deal.valid_until)}`
-                : ''}
+              {formatUpcomingWindow(deal)
+                ? ` · ${formatUpcomingWindow(deal)!.toLowerCase()}`
+                : formatValidUntil(deal.valid_until)
+                  ? ` · gjelder til ${formatValidUntil(deal.valid_until)}`
+                  : ''}
             </Text>
           ) : history.length >= 2 ? (
             <PriceChart points={history} currentPrice={deal.current_price} />
@@ -912,6 +948,7 @@ const styles = StyleSheet.create({
   approximate: { fontSize: 12, color: '#8b6b34', marginTop: 3 },
   unitPrice: { fontSize: 12, color: '#666', marginTop: 1 },
   validUntil: { fontSize: 12, color: '#005B99', marginTop: 2, fontWeight: '600' },
+  validUpcoming: { color: '#A85C00' },
   validUntilModal: { fontSize: 13, color: '#005B99', fontWeight: '600', marginTop: 16 },
   right: { alignItems: 'center', gap: 6, minWidth: 84 },
   chainPill: {

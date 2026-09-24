@@ -25,6 +25,7 @@ import {
   fetchNorwegianCatalogs,
   type TjekOffer,
 } from './tjek.js';
+import { offerWindow, parseTjekDate } from './weekdays.js';
 
 const OUT_DIR = process.env.OUT_DIR ?? './out'; // hvor products.json skrives
 const DRY_RUN = process.env.DRY_RUN === '1' || process.env.DRY_RUN === 'true';
@@ -161,7 +162,8 @@ type Row = {
   computed_at: string;
   cheapest_price: number; // billigste nåpris på tvers av kjeder
   cheapest_chain: string | null;
-  valid_until: string | null; // kun tjek: når ukestilbudet utløper (run_till)
+  valid_from: string | null; // kun tjek: når tilbudet starter (run_from, snevret inn til ukedagene i teksten)
+  valid_until: string | null; // kun tjek: når tilbudet utløper (run_till, snevret inn likt)
   multibuy: { quantity: number; price: number; single: number } | null; // fastpris-multibuy, f.eks. «3 for 100»
 };
 
@@ -262,6 +264,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     computed_at: new Date().toISOString(),
     cheapest_price: cheapest.price,
     cheapest_chain: cheapest.chain,
+    valid_from: null,
     valid_until: null,
     multibuy: null,
   };
@@ -338,8 +341,15 @@ function prettyHeading(raw: string): string {
 function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | null {
   let price = num(offer.pricing?.price);
   if (price == null || price <= 0 || price > 10_000) return null;
-  // Dropp utløpte tilbud ved bygging, så appen slipper utløpslogikk.
-  if (offer.run_till && new Date(offer.run_till).getTime() < now) return null;
+  // «KUN FREDAG», «FAST HELGETILBUD» o.l. står bare i teksten – Tjeks datoer
+  // gjelder hele kundeavisen. Snevre inn til de dagene tilbudet faktisk gjelder.
+  const window = offerWindow(
+    offer.run_from,
+    offer.run_till,
+    `${offer.heading ?? ''} | ${offer.description ?? ''}`,
+  );
+  // Dropp utløpte tilbud ved bygging (appen sjekker også, for tiden mellom syncene).
+  if (window.valid_until && parseTjekDate(window.valid_until) < now) return null;
 
   let pre = num(offer.pricing?.pre_price);
 
@@ -395,7 +405,8 @@ function tjekOfferToRow(offer: TjekOffer, chain: string, now: number): Row | nul
     computed_at: new Date().toISOString(),
     cheapest_price: round2(price),
     cheapest_chain: chain,
-    valid_until: offer.run_till ?? null,
+    valid_from: window.valid_from,
+    valid_until: window.valid_until,
     multibuy,
   };
 }

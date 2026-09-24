@@ -37,8 +37,19 @@ function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_s
 
 // Tjek sender «2026-09-23T21:59:59+0000»; legg inn kolon i tidssonen så
 // strengen er gyldig ISO og parses likt i alle JS-motorer (også Hermes).
-function parseValidUntil(value: string): number {
+function parseOfferDate(value: string): number {
   return Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+}
+
+// Tilbud som ikke har startet ennå – f.eks. «kun fredag» vist på torsdag.
+// Syncen snevrer inn Tjeks datoer til dagene i tilbudsteksten.
+export function isUpcomingOffer(
+  product: Pick<MenyProduct, 'valid_from'>,
+  now: number = Date.now(),
+) {
+  if (!product.valid_from) return false;
+  const from = parseOfferDate(product.valid_from);
+  return Number.isFinite(from) && from > now;
 }
 
 // Ukestilbud (tjek) har en sluttdato. Syncen kjører bare om natta, så uten
@@ -48,7 +59,7 @@ export function isExpiredOffer(
   now: number = Date.now(),
 ) {
   if (!product.valid_until) return false;
-  const until = parseValidUntil(product.valid_until);
+  const until = parseOfferDate(product.valid_until);
   return Number.isFinite(until) && until < now;
 }
 
@@ -440,6 +451,10 @@ export async function fetchTopDeals(
       !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
   );
   const sorted = products.sort((a, b) => {
+    // Tilbud som gjelder nå før tilbud som ikke har startet (f.eks. «kun fredag»).
+    const aUpcoming = isUpcomingOffer(a) ? 1 : 0;
+    const bUpcoming = isUpcomingOffer(b) ? 1 : 0;
+    if (aUpcoming !== bUpcoming) return aUpcoming - bUpcoming;
     // Tilbud med kvantifisert rabatt (reelt drop_pct) først, sortert på dybde –
     // gjelder både Kassal-prisfall og tjek-tilbud med før-pris. Deretter tjek-
     // tilbud uten oppgitt %-rabatt, så de ikke fortrenger de tallfestede tilbudene.

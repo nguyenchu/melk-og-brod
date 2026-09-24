@@ -28,6 +28,7 @@ export type MenyProduct = {
   stores: StoreOffer[] | null; // alle kjeder for prissammenligning
   computed_at: string;
   price_history: PricePoint[] | null;
+  valid_from?: string | null; // kun tjek: når tilbudet starter (f.eks. «kun fredag»)
   valid_until?: string | null; // kun tjek: ukestilbudet utløper (ISO-dato)
   // Fastpris-multibuy, f.eks. «3 for 100»: kjøp `quantity` for `price` totalt,
   // resten til `single` (vanlig enkeltpris). null = ikke multibuy.
