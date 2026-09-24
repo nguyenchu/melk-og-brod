@@ -1,0 +1,61 @@
+name: deploy-web
+
+# Bygger webversjonen (expo export) og legger den ut på matkupp.nguyenchu.com.
+# Kjører når app-koden endres på main, eller manuelt.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'constants/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'assets/**'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      # Samme opprinnelse som siden selv: nginx på matkupp.nguyenchu.com peker
+      # /products.json til fila kassal-sync skriver, så web trenger ingen CORS.
+      - name: Bygg web
+        run: npx expo export -p web
+        env:
+          EXPO_PUBLIC_DATA_URL: /products.json
+
+      # Gjenbruker secretene fra kassal-sync (samme server og bruker).
+      # --delete rydder gamle bundles; products.json ligger i en annen mappe
+      # og berøres ikke.
+      - name: Last opp til server (rsync over SSH)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          rsync -az --delete dist/ "$DEPLOY_USER@$DEPLOY_HOST:/var/www/matkupp-web/"

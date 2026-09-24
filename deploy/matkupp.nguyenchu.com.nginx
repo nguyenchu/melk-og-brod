@@ -1,0 +1,37 @@
+# /etc/nginx/sites-available/matkupp.nguyenchu.com
+# Webversjonen av Matkupp. HTTPS-blokken og 80→443-redirecten legges til av
+# `certbot --nginx -d matkupp.nguyenchu.com` (samme oppsett som de andre sidene).
+server {
+    listen 80;
+    listen [::]:80;
+    server_name matkupp.nguyenchu.com;
+
+    # Fylles av .github/workflows/deploy-web.yml
+    root /var/www/matkupp-web;
+    index index.html;
+
+    # nginx.conf har gzip på, men gzip_types er kommentert ut, så bare HTML
+    # komprimeres. products.json (~1,9 MB) og JS-bundelen (~2,4 MB) trenger det.
+    gzip_types application/json application/javascript text/css image/svg+xml;
+    gzip_min_length 1024;
+    gzip_vary on;
+
+    # Katalogen kassal-sync legger ut hver natt – servert fra samme opprinnelse
+    # som siden, så webappen ikke trenger CORS.
+    location = /products.json {
+        alias /var/www/html/matkupp/products.json;
+        add_header Cache-Control "no-cache";
+    }
+
+    # Filnavnene har innholdshash, så de kan caches for alltid.
+    location /_expo/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # Expo static export: /cart → cart.html
+    location / {
+        try_files $uri $uri.html $uri/ =404;
+    }
+    error_page 404 /+not-found.html;
+}
