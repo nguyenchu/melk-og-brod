@@ -473,9 +473,38 @@ async function main() {
   }
   const byEan = await collectRowsByEan();
 
+  // Diagnose (DEBUG_EANS=ean1,ean2): skriv ut det Kassal faktisk sender for
+  // enkeltvarer – nyttig når en vare vises hos en kjede som ikke fører den.
+  const debugEans = new Set((process.env.DEBUG_EANS ?? '').split(',').map((e) => e.trim()));
+  // Butikkpriser uten historikk slipper gjennom ferskhetsvakten (kan ikke
+  // bevises foreldet). Tell dem per kjede så vi ser hvor utbredt det er.
+  const noHistoryByChain = new Map<string, number>();
+
   const rows: Row[] = [];
   let deals = 0;
   for (const [ean, group] of byEan) {
+    for (const r of group) {
+      if (!r.price_history?.length) {
+        const chain = r.store?.name ?? 'ukjent';
+        noHistoryByChain.set(chain, (noHistoryByChain.get(chain) ?? 0) + 1);
+      }
+    }
+    if (debugEans.has(ean)) {
+      for (const r of group) {
+        const dates = (r.price_history ?? [])
+          .map((p) => p.date)
+          .filter(Boolean)
+          .sort();
+        const timestamps = Object.fromEntries(
+          Object.entries(r).filter(([k]) => /_at$|date|time/i.test(k)),
+        );
+        console.log(
+          `[debug ${ean}] ${r.store?.name}: ${r.current_price} kr, ${dates.length} historikkpunkter` +
+            ` (${dates[0] ?? '–'} → ${dates.at(-1) ?? '–'}), felter: ${Object.keys(r).join(',')}` +
+            `, tidsstempler: ${JSON.stringify(timestamps)}`,
+        );
+      }
+    }
     const row = buildRow(ean, group);
     if (!row) continue;
     rows.push(row);
@@ -483,6 +512,12 @@ async function main() {
   }
   console.log(
     `[sync] bygde ${rows.length} rader (${deals} med prisfall, ${staleOffersSkipped} butikkpriser droppet som foreldet > ${MAX_PRICE_AGE_DAYS} d)`,
+  );
+  console.log(
+    `[sync] butikkpriser uten historikk (beholdt): ${[...noHistoryByChain]
+      .sort((a, b) => b[1] - a[1])
+      .map(([chain, n]) => `${chain} ${n}`)
+      .join(', ')}`,
   );
 
   // Vis et par eksempler så vi ser at transformen er riktig.
