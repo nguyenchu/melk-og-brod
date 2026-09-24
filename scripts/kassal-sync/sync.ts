@@ -36,7 +36,13 @@ const RATE_MS = Number(process.env.RATE_MS ?? 1100); // hold oss under 60/min
 const WINDOW_DAYS = Number(process.env.WINDOW_DAYS ?? 90); // vindu for normalpris (median)
 const MIN_POINTS = Number(process.env.MIN_POINTS ?? 4); // minst antall punkter for å stole på median
 const MAX_DROP_PCT = Number(process.env.MAX_DROP_PCT ?? 85); // kutt urealistiske fall (pr kg/stk-artefakter)
-const MAX_PRICE_AGE_DAYS = Number(process.env.MAX_PRICE_AGE_DAYS ?? 60); // dropp butikkpriser Kassal har sluttet å oppdatere (Coop/KIWI/REMA = frosset på ~2023-priser)
+// Dropp butikkpriser Kassal ikke har sett på en stund. Kassal lagrer et
+// prispunkt hver dag også når prisen står stille, så et nyeste punkt eldre enn
+// dette betyr at kjeden ikke lenger fører varen (f.eks. Nugattisaus hos Meny:
+// sist sett 8. sep., halv pris før den forsvant – borte fra meny.no), eller at
+// Kassal har sluttet å oppdatere kjeden (Coop/KIWI/REMA = frosset på ~2023-priser).
+// Kassal har innimellom hull på opptil ~9 dager, derav 10.
+const MAX_PRICE_AGE_DAYS = Number(process.env.MAX_PRICE_AGE_DAYS ?? 10);
 const HISTORY_KEEP = 20; // antall historikkpunkter vi lagrer (holder JSON-fila liten)
 
 // Kjeder vi IKKE tar med – vi viser kun rene fysiske MATBUTIKK-kjeder.
@@ -171,10 +177,11 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     const price = num(r.current_price);
     if (price == null || price <= 0) continue;
     if (r.store?.name && EXCLUDED_CHAINS.has(r.store.name)) continue; // kun fysiske kjeder
-    // Ferskhetsvakt: har butikken et nyeste prispunkt eldre enn grensa, har
-    // Kassal sluttet å oppdatere kjeden – prisen er foreldet og ville forurenset
-    // både overskrift og «billigst»-sammenligning. Mangler all historikk gir vi
-    // tvilen fordel og beholder raden (kan ikke bevises foreldet).
+    // Ferskhetsvakt: har butikken et nyeste prispunkt eldre enn grensa, fører
+    // kjeden ikke lenger varen (eller Kassal har sluttet å oppdatere kjeden) –
+    // prisen er foreldet og ville forurenset både overskrift og «billigst»-
+    // sammenligning. Mangler all historikk gir vi tvilen fordel og beholder
+    // raden (kan ikke bevises foreldet).
     const lastSeenMs = newestPriceMs(r.price_history);
     if (lastSeenMs != null && Date.now() - lastSeenMs > MAX_PRICE_AGE_DAYS * 86_400_000) {
       staleOffersSkipped++;
