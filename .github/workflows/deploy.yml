@@ -43,9 +43,25 @@ jobs:
       - name: Installer avhengigheter
         run: npm ci
 
+      - name: Skriv Google service account-nøkkel
+        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
+
+      # versionCode må være høyere enn alt som er lastet opp før – også bygg fra
+      # EAS (`npm run build:android`), som nummererer uavhengig av denne
+      # workflowen. Kjøring #27 feilet fordi 127 allerede var brukt. Spør Play
+      # om høyeste kode på alle spor og gå forbi den.
       - name: Sett versionCode
         run: |
+          MAX_PLAY=0
+          for TRACK in internal alpha beta production; do
+            CODES=$(bundle exec fastlane run google_play_track_version_codes \
+              package_name:com.nguyenchu.melkogbrod json_key:google-service-account.json track:$TRACK 2>/dev/null \
+              | grep -oE 'Result: \[[0-9, ]*\]' | grep -oE '[0-9]+' || true)
+            echo "Play-spor $TRACK: ${CODES:-ingen}"
+            for C in $CODES; do if [ "$C" -gt "$MAX_PLAY" ]; then MAX_PLAY=$C; fi; done
+          done
           VERSION_CODE=$(( ${{ github.run_number }} + 100 ))
+          if [ "$VERSION_CODE" -le "$MAX_PLAY" ]; then VERSION_CODE=$(( MAX_PLAY + 1 )); fi
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
@@ -96,9 +112,6 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-
-      - name: Skriv Google service account-nøkkel
-        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
 
       - name: Submit til Google Play (internal)
         run: bundle exec fastlane supply --aab android/app/build/outputs/bundle/release/app-release.aab --track internal --json_key google-service-account.json --package_name com.nguyenchu.melkogbrod --skip_upload_metadata --skip_upload_images --skip_upload_screenshots
