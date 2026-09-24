@@ -1,0 +1,47 @@
+name: Flytt Android-versjon til nytt spor
+
+# Flytter en versjon som allerede er lastet opp (f.eks. internal → production)
+# uten å bygge på nytt. Produksjonsutgivelser går gjennom Googles vurdering
+# før de når brukerne.
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'versionCode som skal flyttes'
+        required: true
+      from_track:
+        description: 'Fra spor'
+        default: internal
+      to_track:
+        description: 'Til spor'
+        default: production
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Skriv Google service account-nøkkel
+        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > google-service-account.json
+
+      - name: Flytt ${{ inputs.version_code }} fra ${{ inputs.from_track }} til ${{ inputs.to_track }}
+        run: >
+          bundle exec fastlane supply
+          --package_name com.nguyenchu.melkogbrod
+          --json_key google-service-account.json
+          --track "${{ inputs.from_track }}"
+          --track_promote_to "${{ inputs.to_track }}"
+          --version_code "${{ inputs.version_code }}"
+          --track_promote_release_status completed
+          --skip_upload_apk --skip_upload_aab --skip_upload_metadata
+          --skip_upload_changelogs --skip_upload_images --skip_upload_screenshots
