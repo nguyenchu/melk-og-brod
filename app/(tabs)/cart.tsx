@@ -1105,7 +1105,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   quantityValue: {
-    minWidth: 24,
+    // Fast bredde: på web er TextInput et <input> med ~150 px standardbredde,
+    // som ellers klemmer priskolonnen til ett tegn på smale skjermer.
+    width: 32,
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '700',
