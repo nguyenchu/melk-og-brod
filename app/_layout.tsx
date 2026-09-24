@@ -1,10 +1,9 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import 'react-native-reanimated';
 import { StyleSheet, Text, View } from 'react-native';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Onboarding, useOnboarding } from '@/components/onboarding';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -32,12 +31,13 @@ const errorStyles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const { needsOnboarding, markDone } = useOnboarding();
 
   return (
     <ErrorBoundary>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {/* Skjermene har faste lyse farger, så appen er bare lys – også når
+          systemet står i mørk modus (ellers blandes mørk navigasjon med lyse skjermer). */}
+      <ThemeProvider value={DefaultTheme}>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen
@@ -50,7 +50,7 @@ export default function RootLayout() {
             }}
           />
         </Stack>
-        <StatusBar style="auto" />
+        <StatusBar style="dark" />
         {needsOnboarding && <Onboarding onDone={markDone} />}
       </ThemeProvider>
     </ErrorBoundary>
