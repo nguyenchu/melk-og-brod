@@ -6,11 +6,12 @@
     "start": "expo start",
     "sync": "npm --prefix scripts/kassal-sync install && npm --prefix scripts/kassal-sync run sync",
     "emu": "ADB=$HOME/Library/Android/sdk/platform-tools/adb EMU=$HOME/Library/Android/sdk/emulator/emulator; $ADB devices | grep -q emulator || ($EMU -avd Fast -no-metrics -memory 2048 -no-audio -no-boot-anim -gpu swiftshader_indirect &); until $ADB shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 2; done && echo 'Emulator klar'",
-    "android": "ADB=$HOME/Library/Android/sdk/platform-tools/adb EMU=$HOME/Library/Android/sdk/emulator/emulator; $ADB devices | grep -q emulator || ($EMU -avd Fast -no-metrics -memory 2048 -no-audio -no-boot-anim -gpu swiftshader_indirect &); expo start",
+    "android": "ADB=$HOME/Library/Android/sdk/platform-tools/adb EMU=$HOME/Library/Android/sdk/emulator/emulator; AVD=${ANDROID_AVD:-$($EMU -list-avds | head -1)}; $ADB devices | grep -q emulator || ($EMU -avd $AVD -no-metrics -memory 2048 -no-audio -no-boot-anim -gpu swiftshader_indirect &); expo start",
     "android:go": "$HOME/Library/Android/sdk/platform-tools/adb reverse tcp:8081 tcp:8081 && $HOME/Library/Android/sdk/platform-tools/adb shell am start -a android.intent.action.VIEW -d exp://127.0.0.1:8081",
     "test": "vitest run",
     "build:android": "eas build --platform android --profile production --non-interactive",
-    "submit:android": "eas submit --platform android --latest"
+    "submit:android": "eas submit --platform android --latest",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
