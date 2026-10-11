@@ -19,7 +19,7 @@ import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { fetchTopDeals, isUpcomingOffer, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
-import { formatDisplayPrice, formatUnitPriceLabel, isApproximateWeight } from '@/lib/pricing';
+import { pricePresentation } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
 
 const CHAIN_FILTER_KEY = 'deals.chainFilter.v1';
@@ -448,6 +448,8 @@ const DealRow = memo(function DealRow({
         chain: item.chain,
         image_url: item.image_url,
         price: item.current_price,
+        price_measure: item.price_measure,
+        unit_price: item.unit_price,
         drop_pct: item.drop_pct,
         campaign_text: item.campaign_text,
         multibuy: item.multibuy,
@@ -472,17 +474,18 @@ const DealRow = memo(function DealRow({
 
   const drop = item.drop_pct ?? 0;
   const isWeekly = item.price_source === 'tjek';
-  const approximate = isApproximateWeight(item.name, item.ean);
-  const currentPriceLabel = formatDisplayPrice(item.current_price, approximate);
-  const beforePriceLabel = formatDisplayPrice(item.median_30d, approximate);
+  const presentation = pricePresentation({ ...item, price: item.current_price });
+  const approximate = presentation.approximate;
+  const currentPriceLabel = presentation.primary;
+  const beforePriceLabel = pricePresentation({
+    ...item,
+    price: item.median_30d,
+    unit_price: null,
+  }).primary;
   const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
   const upcomingLabel = isWeekly ? formatUpcomingWindow(item) : null;
   const validUntilLabel = isWeekly && !upcomingLabel ? formatValidUntil(item.valid_until) : null;
-  const unitPriceLabel = formatUnitPriceLabel({
-    name: item.name,
-    price: item.current_price,
-    ean: item.ean,
-  });
+  const unitPriceLabel = presentation.secondary;
   const showBrand = shouldShowBrand(item.name, item.brand);
 
   return (
@@ -521,15 +524,10 @@ const DealRow = memo(function DealRow({
         ) : (
           <>
             <View style={styles.priceRow}>
-              {currentPriceLabel ? (
-                <Text style={styles.price}>
-                  {approximate ? 'ca. ' : ''}
-                  {currentPriceLabel}
-                </Text>
-              ) : null}
+              {currentPriceLabel ? <Text style={styles.price}>{currentPriceLabel}</Text> : null}
               {beforePriceLabel ? (
                 <Text style={styles.median}>
-                  {beforePricePrefix} {approximate ? 'ca. ' : ''}
+                  {beforePricePrefix}
                   {beforePriceLabel}
                 </Text>
               ) : null}
@@ -540,7 +538,7 @@ const DealRow = memo(function DealRow({
             {unitPriceLabel ? <Text style={styles.unitPrice}>{unitPriceLabel}</Text> : null}
           </>
         )}
-        {approximate ? (
+        {approximate && !presentation.loose ? (
           <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
         ) : null}
         {upcomingLabel ? (
@@ -580,6 +578,8 @@ const DealRow = memo(function DealRow({
                 name: item.name,
                 image_url: item.image_url,
                 price: item.current_price,
+                price_measure: item.price_measure,
+                unit_price: item.unit_price,
               })
             }
             hitSlop={8}
@@ -600,7 +600,11 @@ const DealRow = memo(function DealRow({
 });
 
 function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () => void }) {
-  const history = deal.price_history ?? [];
+  const presentation = pricePresentation({ ...deal, price: deal.current_price });
+  const measure = deal.price_measure;
+  const scale =
+    measure?.loose && measure.unit === 'kg' && measure.amount > 0 ? 1 / measure.amount : 1;
+  const history = (deal.price_history ?? []).map((p) => ({ ...p, price: p.price * scale }));
   const stores = (deal.stores ?? []).filter((s) => s.price != null);
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -619,9 +623,7 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
             <Text style={styles.modalPrice}>
               {deal.multibuy
                 ? `${deal.multibuy.quantity} for ${deal.multibuy.price} kr`
-                : deal.current_price != null
-                  ? `${deal.current_price.toFixed(2)} kr`
-                  : '—'}
+                : (presentation.primary ?? '—')}
             </Text>
             {deal.chain ? <Text style={styles.modalChain}>@ {deal.chain}</Text> : null}
             {deal.drop_pct != null ? (
@@ -630,6 +632,9 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
               </View>
             ) : null}
           </View>
+          {presentation.secondary ? (
+            <Text style={styles.unitPrice}>{presentation.secondary}</Text>
+          ) : null}
           {stores.length > 0 ? (
             <View style={styles.storeBlock}>
               <Text style={styles.storeBlockTitle}>Pris i butikkene</Text>
@@ -643,7 +648,15 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
                     <Text style={styles.storeDrop}>−{s.drop_pct.toFixed(0)}%</Text>
                   ) : null}
                   <Text style={[styles.storePrice, i === 0 && styles.storePriceBest]}>
-                    {s.price.toFixed(2)} kr
+                    {
+                      pricePresentation({
+                        name: deal.name,
+                        ean: deal.ean,
+                        price: s.price,
+                        price_measure: s.price_measure,
+                        unit_price: s.unit_price,
+                      }).primary
+                    }
                   </Text>
                 </View>
               ))}
@@ -659,7 +672,14 @@ function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () =
                   : ''}
             </Text>
           ) : history.length >= 2 ? (
-            <PriceChart points={history} currentPrice={deal.current_price} />
+            <>
+              {scale !== 1 ? <Text style={styles.unitPrice}>Prishistorikk i kr/kg</Text> : null}
+              <PriceChart
+                points={history}
+                currentPrice={deal.current_price == null ? null : deal.current_price * scale}
+                unit={scale !== 1 ? 'kr/kg' : 'kr'}
+              />
+            </>
           ) : (
             <Text style={styles.noChartText}>Ikke nok prishistorikk ennå</Text>
           )}
@@ -688,9 +708,11 @@ function niceTicks(min: number, max: number, count = 4): number[] {
 function PriceChart({
   points,
   currentPrice,
+  unit = 'kr',
 }: {
   points: PricePoint[];
   currentPrice: number | null;
+  unit?: string;
 }) {
   const W = 300;
   const H = 150;
@@ -714,8 +736,8 @@ function PriceChart({
     .join(' ');
 
   const fmtDate = (d: string) => {
-    const [, m, day] = d.split('-');
-    return `${day}.${m}`;
+    const match = d.match(/^\d{4}-(\d{2})-(\d{2})/);
+    return match ? `${match[2]}.${match[1]}` : '';
   };
   const dateAt = (i: number) => (points[i]?.date ? fmtDate(points[i].date) : '');
   const yTicks = niceTicks(minP, maxP, 4);
@@ -733,7 +755,7 @@ function PriceChart({
 
   return (
     <View style={styles.chartWrap}>
-      <Text style={styles.chartLabel}>Prishistorikk (siste {points.length} dager)</Text>
+      <Text style={styles.chartLabel}>Prishistorikk (siste {points.length} målinger)</Text>
       <Svg width={W} height={H}>
         {yTicks.map((tick) => {
           const y = toY(tick);
@@ -819,7 +841,7 @@ function PriceChart({
       </Svg>
       <View style={styles.chartLegend}>
         <View style={styles.chartLegendDot} />
-        <Text style={styles.chartLegendText}>Historisk pris (kr)</Text>
+        <Text style={styles.chartLegendText}>Historisk pris ({unit})</Text>
         <View style={[styles.chartLegendDot, { backgroundColor: '#2E8B57' }]} />
         <Text style={styles.chartLegendText}>Nå</Text>
       </View>

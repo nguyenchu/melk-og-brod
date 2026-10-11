@@ -17,6 +17,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import './env.js';
+import { measureFromMetadata, type PriceMeasure } from '../../lib/price-measure.js';
 import { searchProducts, type KassalPricePoint, type KassalSearchProduct } from './kassal.js';
 import { SEED_TERMS } from './seeds.js';
 import {
@@ -70,16 +71,20 @@ type StoreOffer = {
   price: number;
   url: string | null;
   median: number | null; // butikkens egen normalpris (median i vinduet)
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
   drop_pct: number | null; // prisfall mot egen median
 };
 
 // Det slanke butikk-tilbudet som faktisk lagres i products.json (det appen rendrer).
-// url/logo/unit_price/median droppes – de var ubrukt og veide ~1,2 MB.
+// Enhetspris og mengde beholdes for riktig visning av blant annet løsvektvarer.
 type OutOffer = {
   chain: string | null;
   code: string | null;
   price: number;
   drop_pct: number | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -159,6 +164,8 @@ type Row = {
   campaign_text: string | null;
   stores: OutOffer[];
   price_history: { date: string; price: number }[] | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
   computed_at: string;
   cheapest_price: number; // billigste nåpris på tvers av kjeder
   cheapest_chain: string | null;
@@ -210,6 +217,8 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
         chain: r.store?.name ?? null,
         code: r.store?.code ?? null,
         price,
+        price_measure: measureFromMetadata(r),
+        unit_price: num(r.current_unit_price),
         url: r.url ?? null,
         median: med != null ? round2(med) : null,
         drop_pct: drop,
@@ -247,6 +256,8 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
     vendor_url: headline.offer.url,
     chain: headline.offer.chain,
     current_price: round2(current_price),
+    price_measure: headline.offer.price_measure,
+    unit_price: headline.offer.unit_price,
     median_30d: headline.offer.median,
     original_price: null,
     price_source: headline.offer.drop_pct != null ? 'median' : null,
@@ -256,6 +267,8 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
       chain: o.chain,
       code: o.code,
       price: o.price,
+      price_measure: o.price_measure,
+      unit_price: o.unit_price,
       drop_pct: o.drop_pct,
     })),
     // Prishistorikk lagres bare for tilbud (kun de viser graf), så fila holdes liten

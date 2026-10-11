@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
 import { getCatalog, hasDataConfig } from './catalog';
 import { isExpiredOffer } from './deals';
+import type { PriceMeasure } from './price-measure';
 import type { CartItem, MenyProduct } from './types';
 
 function haptic(style: Haptics.ImpactFeedbackStyle | 'selection') {
@@ -111,6 +112,8 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
           image_url: p.image_url,
           campaign_text: isLikelyCampaignText(p.campaign_text) ? p.campaign_text : null,
           current_price: p.current_price,
+          price_measure: p.price_measure,
+          unit_price: p.unit_price,
           drop_pct: p.drop_pct,
           chain: p.chain,
           multibuy: p.multibuy ?? null,
@@ -153,6 +156,8 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
         chain: item.chain ?? live.chain, // backfill kjede for varer lagt til før chain fantes
         image_url: item.image_url ?? live.image_url,
         price: liveMultibuy ? liveMultibuy.single : (live.current_price ?? item.price),
+        price_measure: live.price_measure ?? item.price_measure,
+        unit_price: live.unit_price ?? null,
         drop_pct: live.drop_pct,
         campaign_text: live.campaign_text,
         deal_expired: nowOnDeal ? false : item.deal_expired || (hasDealSignal(item) && !nowOnDeal),
@@ -163,6 +168,8 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
         (next.multibuy?.price ?? 0) !== (item.multibuy?.price ?? 0) ||
         (next.multibuy?.single ?? 0) !== (item.multibuy?.single ?? 0);
       if (
+        JSON.stringify(next.price_measure) !== JSON.stringify(item.price_measure) ||
+        next.unit_price !== item.unit_price ||
         next.name !== item.name ||
         next.chain !== item.chain ||
         next.image_url !== item.image_url ||
@@ -231,6 +238,8 @@ export async function addToCart(input: {
   chain?: string | null;
   image_url?: string | null;
   price?: number | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
   drop_pct?: number | null;
   campaign_text?: string | null;
   multibuy?: { quantity: number; price: number; single: number } | null;
@@ -260,6 +269,8 @@ export async function addToCart(input: {
               chain: nextChain,
               campaign_text: nextCampaignText,
               deal_expired: false,
+              price_measure: input.price_measure ?? i.price_measure,
+              unit_price: input.unit_price ?? i.unit_price,
               multibuy: i.multibuy ?? input.multibuy ?? null,
             }
           : i,
@@ -272,6 +283,8 @@ export async function addToCart(input: {
       chain: nextChain,
       campaign_text: nextCampaignText,
       deal_expired: false,
+      price_measure: input.price_measure ?? existing.price_measure,
+      unit_price: input.unit_price ?? existing.unit_price,
       multibuy: existing.multibuy ?? input.multibuy ?? null,
     };
   }
@@ -282,6 +295,8 @@ export async function addToCart(input: {
     chain: input.chain ?? null,
     image_url: input.image_url ?? null,
     price: effectivePrice,
+    price_measure: input.price_measure ?? null,
+    unit_price: input.unit_price ?? null,
     drop_pct: input.drop_pct ?? null,
     campaign_text: isLikelyCampaignText(input.campaign_text) ? (input.campaign_text ?? null) : null,
     quantity: 1,

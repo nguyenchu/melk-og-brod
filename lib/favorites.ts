@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import type { PriceMeasure } from './price-measure';
 import { syncFavoritesToServer } from './notifications';
 
 const FAVORITES_KEY = 'favorites.v1';
@@ -9,6 +10,8 @@ export type FavoriteItem = {
   name: string;
   image_url: string | null;
   price: number | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
 };
 
 let cache: FavoriteItem[] | null = null;

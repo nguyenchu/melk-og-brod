@@ -27,6 +27,8 @@ export interface KassalSearchProduct {
   category?: { name?: string }[] | null;
   current_price?: number | string | null;
   current_unit_price?: number | string | null;
+  weight?: number | string | null;
+  weight_unit?: string | null;
   store?: KassalStore | null;
   price_history?: KassalPricePoint[];
 }

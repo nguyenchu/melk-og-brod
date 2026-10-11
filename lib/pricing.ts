@@ -1,3 +1,5 @@
+import { isLooseProduct, type PriceMeasure } from './price-measure';
+
 type UnitKind = 'kg' | 'l' | 'stk';
 
 type ParsedUnit = {
@@ -120,15 +122,70 @@ export function formatUnitPriceLabel(input: {
   name: string;
   price: number | null | undefined;
   ean?: string | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
 }) {
   if (input.price == null) return null;
 
-  const parsed = inferUnitFromProduct(input.name, input.ean);
+  const parsed = input.price_measure
+    ? { ...input.price_measure, approximate: input.price_measure.loose }
+    : inferUnitFromProduct(input.name, input.ean);
   if (!parsed || !Number.isFinite(parsed.amount) || parsed.amount <= 0) return null;
 
-  const unitPrice = input.price / parsed.amount;
+  const unitPrice =
+    input.unit_price != null && Number.isFinite(input.unit_price) && input.unit_price > 0
+      ? input.unit_price
+      : input.price / parsed.amount;
   const value = parsed.approximate
     ? `${Math.round(unitPrice)} kr/${parsed.unit}`
     : `${unitPrice.toFixed(2)} kr/${parsed.unit}`;
   return parsed.approximate ? `ca. ${value}` : value;
+}
+
+export function pricePresentation(input: {
+  name: string;
+  ean?: string | null;
+  price: number | null | undefined;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
+}) {
+  const measure = input.price_measure;
+  const loose = measure?.loose ?? isLooseProduct(input.name, input.ean);
+  const validMeasure = measure && Number.isFinite(measure.amount) && measure.amount > 0;
+  const money = (n: number) => n.toFixed(2).replace('.', ',');
+  if (loose && validMeasure && measure.unit === 'kg' && input.price != null) {
+    const unitPrice =
+      input.unit_price != null && Number.isFinite(input.unit_price) && input.unit_price > 0
+        ? input.unit_price
+        : input.price / measure.amount;
+    const weight =
+      measure.amount < 1
+        ? `${Math.round(measure.amount * 1000)} g`
+        : `${String(Number(measure.amount.toFixed(3))).replace('.', ',')} kg`;
+    return {
+      primary: `${money(unitPrice)} kr/kg`,
+      secondary: `ca. ${money(input.price)} kr per ${weight}`,
+      purchase: `ca. ${money(input.price)} kr/stk`,
+      approximate: true,
+      loose: true,
+    };
+  }
+  // Old cached catalogs may lack the weight. Never guess a kilogram price.
+  if (loose)
+    return {
+      primary: input.price == null ? null : `ca. ${money(input.price)} kr/stk`,
+      secondary: 'Løsvekt · kilopris mangler',
+      purchase: input.price == null ? null : `ca. ${money(input.price)} kr/stk`,
+      approximate: true,
+      loose: true,
+    };
+  const approximate = isApproximateWeight(input.name, input.ean);
+  const price = formatDisplayPrice(input.price, approximate);
+  return {
+    primary: price ? `${approximate ? 'ca. ' : ''}${price}` : null,
+    secondary: formatUnitPriceLabel(input),
+    purchase: price ? `${approximate ? 'ca. ' : ''}${price}` : null,
+    approximate,
+    loose: false,
+  };
 }

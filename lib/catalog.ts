@@ -58,7 +58,10 @@ function adopt(payload: CatalogPayload): MenyProduct[] {
 
 async function loadCatalog(forceNetwork: boolean): Promise<MenyProduct[]> {
   const cached = await readCache();
-  const stale = !cached || Date.now() - cached.fetched_at > TTL_MS;
+  const stale =
+    !cached ||
+    Date.now() - cached.fetched_at > TTL_MS ||
+    !cached.payload.products.some((p) => 'price_measure' in p);
 
   // Fersk nok cache: bruk den uten nettkall.
   if (cached && !stale && !forceNetwork) return adopt(cached.payload);

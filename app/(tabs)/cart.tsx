@@ -15,13 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {
-  addToCart,
-  clearChecked,
-  toggleChecked,
-  updateQuantity,
-  useCart,
-} from '@/lib/cart';
+import { addToCart, clearChecked, toggleChecked, updateQuantity, useCart } from '@/lib/cart';
 import {
   computeCartTotals,
   getCampaignKind,
@@ -31,7 +25,7 @@ import {
 import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
-import { formatUnitPriceLabel } from '@/lib/pricing';
+import { pricePresentation } from '@/lib/pricing';
 import type { CartItem, MenyProduct } from '@/lib/types';
 
 type SearchMode = 'all' | 'deals';
@@ -106,6 +100,8 @@ export default function CartScreen() {
       chain: p.chain,
       image_url: p.image_url,
       price: p.current_price,
+      price_measure: p.price_measure,
+      unit_price: p.unit_price,
       drop_pct: p.drop_pct,
       campaign_text: p.campaign_text,
       multibuy: p.multibuy,
@@ -121,7 +117,8 @@ export default function CartScreen() {
       const header = `${g.chain || 'Andre varer'} (${g.subtotal.toFixed(2)} kr):`;
       const lines = g.items.map((i) => {
         const qty = i.quantity > 1 ? ` (${i.quantity}x)` : '';
-        const price = i.price != null ? ` – ${i.price.toFixed(2)} kr` : '';
+        const label = pricePresentation({ ...i, price: i.price }).purchase;
+        const price = label ? ` – ${label}` : '';
         return `• ${i.name}${qty}${price}`;
       });
       return `${header}\n${lines.join('\n')}`;
@@ -351,6 +348,8 @@ export default function CartScreen() {
                               ean: fav.ean,
                               image_url: fav.image_url,
                               price: fav.price,
+                              price_measure: fav.price_measure,
+                              unit_price: fav.unit_price,
                             })
                           }
                         >
@@ -548,11 +547,8 @@ const SearchResultRow = memo(function SearchResultRow({
   const beforePrice = isMenyPromo ? item.original_price : item.median_30d;
   const beforePrefix = isMenyPromo ? 'førpris' : 'vanligvis';
   const showDeal = item.drop_pct != null && item.drop_pct >= 5;
-  const unitPriceLabel = formatUnitPriceLabel({
-    name: item.name,
-    price: item.current_price,
-    ean: item.ean,
-  });
+  const presentation = pricePresentation({ ...item, price: item.current_price });
+  const unitPriceLabel = presentation.secondary;
 
   return (
     <View style={[styles.resultRow, inCart && styles.resultRowInCart]}>
@@ -589,12 +585,13 @@ const SearchResultRow = memo(function SearchResultRow({
           </>
         ) : null}
         {item.current_price != null ? (
-          <Text style={styles.resultPrice}>{item.current_price.toFixed(2)} kr</Text>
+          <Text style={styles.resultPrice}>{presentation.primary}</Text>
         ) : null}
         {unitPriceLabel ? <Text style={styles.resultUnitPrice}>{unitPriceLabel}</Text> : null}
         {beforePrice != null && showDeal ? (
           <Text style={styles.resultBeforePrice}>
-            {beforePrefix} {beforePrice.toFixed(2)}
+            {beforePrefix}{' '}
+            {pricePresentation({ ...item, price: beforePrice, unit_price: null }).primary}
           </Text>
         ) : null}
       </View>
@@ -618,6 +615,8 @@ const SearchResultRow = memo(function SearchResultRow({
             name: item.name,
             image_url: item.image_url,
             price: item.current_price,
+            price_measure: item.price_measure,
+            unit_price: item.unit_price,
           })
         }
       >
@@ -653,7 +652,9 @@ function StickyTotal({
           <Text style={styles.totalLabel}>{showSavings ? 'Samlet besparelse' : 'Handleliste'}</Text>
           <Text style={styles.totalHint}>{searching ? 'Oppdatert mens du søker' : countHint}</Text>
         </View>
-        {showSavings ? <Text style={styles.totalSavingsValue}>−{savings.toFixed(2)} kr</Text> : null}
+        {showSavings ? (
+          <Text style={styles.totalSavingsValue}>−{savings.toFixed(2)} kr</Text>
+        ) : null}
       </View>
     </View>
   );
@@ -695,11 +696,10 @@ const CartRow = memo(function CartRow({
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
   const value = draftQuantity ?? String(item.quantity);
   const lineTotal = getLineTotal(item);
-  const unitPriceLabel = formatUnitPriceLabel({
-    name: item.name,
-    price: item.price,
-    ean: item.ean,
-  });
+  const presentation = pricePresentation({ ...item, price: item.price });
+  const unitPriceLabel = presentation.loose
+    ? presentation.primary + ' · ' + presentation.secondary
+    : presentation.secondary;
   const favorites = useFavorites();
   const starred = !!item.ean && favorites.some((f) => f.ean === item.ean);
 
@@ -746,11 +746,12 @@ const CartRow = memo(function CartRow({
             <View style={styles.cartPriceRow}>
               {item.price != null && (
                 <Text style={styles.cartPrice} numberOfLines={1}>
-                  <Text style={styles.cartPricePrimary}>{item.price.toFixed(2)} kr</Text>
+                  <Text style={styles.cartPricePrimary}>{presentation.purchase}</Text>
                   {item.quantity > 1 ? (
                     <Text style={styles.cartPriceSecondary}>
                       {' '}
-                      · {lineTotal.toFixed(2)} kr totalt
+                      · {presentation.approximate ? 'ca. ' : ''}
+                      {lineTotal.toFixed(2)} kr totalt
                     </Text>
                   ) : null}
                 </Text>

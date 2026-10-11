@@ -1,3 +1,5 @@
+import type { PriceMeasure } from './price-measure';
+
 export type PricePoint = { date: string; price: number };
 
 // Ett tilbud i én kjede – grunnlaget for prissammenligning på tvers av butikker.
@@ -6,6 +8,8 @@ export type StoreOffer = {
   code: string | null;
   price: number;
   drop_pct: number | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
 };
 
 // Denormalisert produkt fra Supabase (matet av Kassal-syncen, alle kjeder).
@@ -26,6 +30,8 @@ export type MenyProduct = {
   cheapest_price: number | null; // billigste nåpris på tvers av kjeder
   cheapest_chain: string | null;
   stores: StoreOffer[] | null; // alle kjeder for prissammenligning
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
   computed_at: string;
   price_history: PricePoint[] | null;
   valid_from?: string | null; // kun tjek: når tilbudet starter (f.eks. «kun fredag»)
@@ -44,6 +50,8 @@ export type CartItem = {
   price: number | null;
   drop_pct: number | null;
   campaign_text: string | null;
+  price_measure?: PriceMeasure | null;
+  unit_price?: number | null;
   quantity: number;
   checked: boolean;
   added_at: string;
