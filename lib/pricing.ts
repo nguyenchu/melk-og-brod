@@ -149,7 +149,12 @@ export function pricePresentation(input: {
   price_measure?: PriceMeasure | null;
   unit_price?: number | null;
 }) {
-  const measure = input.price_measure;
+  const namedMeasure = inferUnitFromProduct(input.name, input.ean);
+  const measure =
+    input.price_measure ??
+    (namedMeasure?.unit === 'kg' && isLooseProduct(input.name, input.ean)
+      ? { amount: namedMeasure.amount, unit: 'kg' as const, loose: true }
+      : null);
   const loose = measure?.loose ?? isLooseProduct(input.name, input.ean);
   const validMeasure = measure && Number.isFinite(measure.amount) && measure.amount > 0;
   const money = (n: number) => n.toFixed(2).replace('.', ',');
@@ -165,7 +170,7 @@ export function pricePresentation(input: {
     return {
       primary: `${money(unitPrice)} kr/kg`,
       secondary: `ca. ${money(input.price)} kr per ${weight}`,
-      purchase: `ca. ${money(input.price)} kr/stk`,
+      purchase: `ca. ${money(input.price)} kr per ${weight}`,
       approximate: true,
       loose: true,
     };

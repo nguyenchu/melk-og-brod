@@ -49,7 +49,7 @@ describe('price presentation', () => {
     expect(pricePresentation(potato)).toMatchObject({
       primary: '10,00 kr/kg',
       secondary: 'ca. 1,30 kr per 130 g',
-      purchase: 'ca. 1,30 kr/stk',
+      purchase: 'ca. 1,30 kr per 130 g',
       loose: true,
     });
   });
@@ -57,6 +57,13 @@ describe('price presentation', () => {
     expect(pricePresentation({ ...potato, price: 4.28, unit_price: null }).primary).toBe(
       '32,92 kr/kg',
     );
+  });
+  it('uses an explicit 100 gram quantity in a weekly loose-weight offer', () => {
+    expect(pricePresentation({ name: 'Nidar smågodt i løsvekt 100 g', price: 10 })).toMatchObject({
+      primary: '100,00 kr/kg',
+      secondary: 'ca. 10,00 kr per 100 g',
+      purchase: 'ca. 10,00 kr per 100 g',
+    });
   });
   it('calculates unit price from quantity when a store has no explicit unit price', () => {
     expect(pricePresentation({ ...potato, price: 3.5, unit_price: null }).primary).toBe(

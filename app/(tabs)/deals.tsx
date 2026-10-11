@@ -37,7 +37,7 @@ function normalizeChainName(value: string) {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-// De 6 utvalgte kjedene som alltid vises som chips. Resten ligger bak «Flere».
+// De utvalgte kjedene som alltid vises som chips. Resten ligger bak «Flere».
 const FEATURED_CHAIN_FILTERS: { id: string; label: string; chains: string[] }[] = [
   { id: 'KIWI', label: 'KIWI', chains: ['KIWI'] },
   { id: 'REMA', label: 'REMA', chains: ['REMA 1000'] },
@@ -45,6 +45,8 @@ const FEATURED_CHAIN_FILTERS: { id: string; label: string; chains: string[] }[] 
   { id: 'Extra', label: 'Coop Extra', chains: ['Extra', 'Coop Extra'] },
   { id: 'Joker', label: 'Joker', chains: ['Joker'] },
   { id: 'Bunnpris', label: 'Bunnpris', chains: ['Bunnpris'] },
+  { id: 'Coop Marked', label: 'Coop Marked', chains: ['Coop Marked', 'Marked'] },
+  { id: 'Gigaboks', label: 'Gigaboks', chains: ['Gigaboks'] },
 ];
 
 const FEATURED_CHAIN_MEMBERS = new Set(
@@ -68,7 +70,7 @@ function countChains(chains: string[] | null, counts: Map<string, number>) {
   );
 }
 
-// «Alle» + de 6 utvalgte (alfabetisk), med antall. Vises alltid som chips (wrapper).
+// «Alle» + de utvalgte (alfabetisk), med antall. Vises alltid som chips (wrapper).
 function featuredOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
   const counts = chainCountsFor(deals);
   const featured = FEATURED_CHAIN_FILTERS.map((option) => ({
@@ -76,7 +78,12 @@ function featuredOptionsFor(deals: MenyProduct[] | null): ChainOption[] {
     count: countChains(option.chains, counts),
   })).sort((a, b) => a.label.localeCompare(b.label, 'nb'));
   return [
-    { id: ALL_CHAINS, label: ALL_CHAINS, chains: null, count: deals?.length ?? 0 },
+    {
+      id: ALL_CHAINS,
+      label: ALL_CHAINS,
+      chains: FEATURED_CHAIN_FILTERS.flatMap((option) => option.chains),
+      count: featured.reduce((sum, option) => sum + option.count, 0),
+    },
     ...featured,
   ];
 }
@@ -226,9 +233,10 @@ export default function DealsScreen() {
     () => (deals ?? []).filter((deal) => productMatchesChain(deal, selectedChain)),
     [deals, selectedChain],
   );
-  const emptyMessage = selectedChain.chains
-    ? `Ingen aktive kampanjer for ${selectedChain.label} akkurat nå.`
-    : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
+  const emptyMessage =
+    selectedChain.id !== ALL_CHAINS
+      ? `Ingen aktive kampanjer for ${selectedChain.label} akkurat nå.`
+      : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
 
   const cartByEan = useMemo(() => {
     const map = new Map<string, { id: string; quantity: number }>();
@@ -316,7 +324,11 @@ export default function DealsScreen() {
             ) : (
               <>
                 <View style={styles.headerBlock}>
-                  <Text style={styles.headerSub}>Ekte tilbud fra alle kjeder</Text>
+                  <Text style={styles.headerSub}>
+                    {selectedChain.id === ALL_CHAINS
+                      ? 'Tilbud fra utvalgte kjeder'
+                      : `Tilbud fra ${selectedChain.label}`}
+                  </Text>
                   {fromCache ? (
                     <Text style={styles.cacheNotice}>
                       Viser sist hentede tilbud · ingen nettilgang
