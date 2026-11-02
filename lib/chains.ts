@@ -15,7 +15,7 @@ export function normalizeChainName(value: string) {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
-// De utvalgte kjedene som alltid vises som chips. Resten ligger bak «Flere».
+// De utvalgte kjedene: følges som standard og står først i kjede-arket.
 export const FEATURED_CHAIN_FILTERS: { id: string; label: string; chains: string[] }[] = [
   { id: 'KIWI', label: 'KIWI', chains: ['KIWI'] },
   { id: 'REMA', label: 'REMA', chains: ['REMA 1000'] },
@@ -48,34 +48,32 @@ export function countChains(chains: string[] | null, counts: Map<string, number>
   );
 }
 
-// «Alle» + de utvalgte (alfabetisk), med antall. Vises alltid som chips (wrapper).
-export function featuredOptionsFor(deals: ChainedProduct[] | null): ChainOption[] {
+// Kjedene en ny bruker følger: de utvalgte.
+export const DEFAULT_FOLLOWED_CHAINS = FEATURED_CHAIN_FILTERS.map((option) => option.id);
+
+const FEATURED_IDS = new Set(DEFAULT_FOLLOWED_CHAINS.map(normalizeChainName));
+
+export function isFeaturedChainOption(option: Pick<ChainOption, 'id'>) {
+  return FEATURED_IDS.has(normalizeChainName(option.id));
+}
+
+// Alle kjeder brukeren kan følge: de utvalgte først (også uten tilbud nå), så
+// øvrige kjeder som har tilbud, hver gruppe alfabetisk, med antall.
+export function chainOptionsFor(deals: ChainedProduct[] | null): ChainOption[] {
   const counts = chainCountsFor(deals);
+  const byLabel = (a: ChainOption, b: ChainOption) => a.label.localeCompare(b.label, 'nb');
   const featured = FEATURED_CHAIN_FILTERS.map((option) => ({
     ...option,
     count: countChains(option.chains, counts),
-  })).sort((a, b) => a.label.localeCompare(b.label, 'nb'));
-  return [
-    {
-      id: ALL_CHAINS,
-      label: ALL_CHAINS,
-      chains: FEATURED_CHAIN_FILTERS.flatMap((option) => option.chains),
-      count: featured.reduce((sum, option) => sum + option.count, 0),
-    },
-    ...featured,
-  ];
-}
+  })).sort(byLabel);
 
-// Alle øvrige kjeder (ikke blant de utvalgte), alfabetisk. Ligger bak «Flere».
-export function moreOptionsFor(deals: ChainedProduct[] | null): ChainOption[] {
-  const counts = chainCountsFor(deals);
   const present = new Map<string, string>();
   for (const deal of deals ?? []) {
     if (!deal.chain) continue;
     const key = normalizeChainName(deal.chain);
     if (!present.has(key)) present.set(key, deal.chain);
   }
-  return Array.from(present)
+  const others = Array.from(present)
     .filter(([key]) => !FEATURED_CHAIN_MEMBERS.has(key))
     .map(([key, chain]) => ({
       id: chain,
@@ -83,7 +81,27 @@ export function moreOptionsFor(deals: ChainedProduct[] | null): ChainOption[] {
       chains: [chain],
       count: counts.get(key) ?? 0,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'nb'));
+    .sort(byLabel);
+
+  return [...featured, ...others];
+}
+
+// Kjedene brukeren følger, i samme rekkefølge som chainOptionsFor. En fulgt
+// kjede uten tilbud akkurat nå (og som ikke er utvalgt) er ikke med.
+export function followedOptionsFor(options: ChainOption[], followed: string[]): ChainOption[] {
+  const keys = new Set(followed.map(normalizeChainName));
+  return options.filter((option) => keys.has(normalizeChainName(option.id)));
+}
+
+// «Alle mine»: summen av de fulgte kjedene. Lagres som ALL_CHAINS, slik at et
+// gammelt «Alle»-filter fortsatt betyr «alt jeg følger».
+export function allFollowedOption(followed: ChainOption[]): ChainOption {
+  return {
+    id: ALL_CHAINS,
+    label: 'Alle mine',
+    chains: followed.flatMap((option) => option.chains ?? []),
+    count: followed.reduce((sum, option) => sum + option.count, 0),
+  };
 }
 
 export function findChainOption(

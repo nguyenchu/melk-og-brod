@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_CHAINS,
+  DEFAULT_FOLLOWED_CHAINS,
   FEATURED_CHAIN_FILTERS,
   FEATURED_CHAIN_MEMBERS,
+  allFollowedOption,
   chainCountsFor,
+  chainOptionsFor,
   countChains,
-  featuredOptionsFor,
   findChainOption,
-  moreOptionsFor,
+  followedOptionsFor,
+  isFeaturedChainOption,
   normalizeChainName,
   productMatchesChain,
 } from './chains';
@@ -28,7 +31,7 @@ const deals = [
 ];
 
 const option = (id: string) => {
-  const found = featuredOptionsFor(deals).find((candidate) => candidate.id === id);
+  const found = chainOptionsFor(deals).find((candidate) => candidate.id === id);
   if (!found) throw new Error(`mangler ${id}`);
   return found;
 };
@@ -65,47 +68,68 @@ describe('chain counts', () => {
   });
 });
 
-describe('featured chain options', () => {
+describe('chain options', () => {
   it('merges the aliases Coop Marked/Marked and Extra/Coop Extra', () => {
     expect(option('Coop Marked').count).toBe(2);
     expect(option('Extra')).toMatchObject({ label: 'Coop Extra', count: 2 });
   });
-  it('counts «Alle» as the sum of the featured chains only', () => {
-    const [all, ...featured] = featuredOptionsFor(deals);
-    expect(all.id).toBe(ALL_CHAINS);
-    expect(all.count).toBe(featured.reduce((sum, candidate) => sum + candidate.count, 0));
-    expect(all.count).toBe(7);
-    expect(all.chains).toEqual(FEATURED_CHAIN_FILTERS.flatMap((filter) => filter.chains));
+  it('lists every featured chain first, alphabetically, with zero counts when absent', () => {
+    const options = chainOptionsFor(null);
+    expect(options.map((candidate) => candidate.id).sort()).toEqual(
+      [...DEFAULT_FOLLOWED_CHAINS].sort(),
+    );
+    const labels = options.map((candidate) => candidate.label);
+    expect(labels).toEqual([...labels].sort((a, b) => a.localeCompare(b, 'nb')));
+    expect(options.every((candidate) => candidate.count === 0)).toBe(true);
   });
-  it('lists the featured chains alphabetically after «Alle», with zero counts when absent', () => {
-    const labels = featuredOptionsFor(null).map((candidate) => candidate.label);
-    expect(labels[0]).toBe(ALL_CHAINS);
-    expect(labels.slice(1)).toEqual([...labels.slice(1)].sort((a, b) => a.localeCompare(b, 'nb')));
-    expect(featuredOptionsFor(null).every((candidate) => candidate.count === 0)).toBe(true);
-  });
-});
-
-describe('more chain options', () => {
-  it('lists only non-featured chains, alphabetically', () => {
-    expect(moreOptionsFor(deals)).toEqual([
+  it('lists non-featured chains with deals after the featured ones, alphabetically', () => {
+    const options = chainOptionsFor(deals);
+    expect(options.slice(FEATURED_CHAIN_FILTERS.length)).toEqual([
       { id: 'Obs', label: 'Obs', chains: ['Obs'], count: 1 },
       { id: 'Spar', label: 'Spar', chains: ['Spar'], count: 1 },
     ]);
+    expect(options.slice(0, FEATURED_CHAIN_FILTERS.length).every(isFeaturedChainOption)).toBe(true);
+    expect(isFeaturedChainOption(option('Spar'))).toBe(false);
+  });
+});
+
+describe('followed chains', () => {
+  const options = chainOptionsFor(deals);
+  it('keeps the option order and matches ids case-insensitively', () => {
+    const followed = followedOptionsFor(options, ['spar', 'REMA', 'kiwi']);
+    expect(followed.map((candidate) => candidate.id)).toEqual(['KIWI', 'REMA', 'Spar']);
+  });
+  it('skips followed chains that have no option right now', () => {
+    expect(followedOptionsFor(options, ['Ukjent', 'KIWI']).map((c) => c.id)).toEqual(['KIWI']);
+  });
+  it('sums the followed chains into «Alle mine»', () => {
+    const all = allFollowedOption(followedOptionsFor(options, ['KIWI', 'Coop Marked', 'Spar']));
+    expect(all).toEqual({
+      id: ALL_CHAINS,
+      label: 'Alle mine',
+      chains: ['Coop Marked', 'Marked', 'KIWI', 'Spar'],
+      count: 5,
+    });
+    expect(productMatchesChain(deal('Marked'), all)).toBe(true);
+    expect(productMatchesChain(deal('REMA 1000'), all)).toBe(false);
+  });
+  it('matches nothing when no chains are followed', () => {
+    const none = allFollowedOption([]);
+    expect(none.count).toBe(0);
+    expect(productMatchesChain(deal('KIWI'), none)).toBe(false);
   });
 });
 
 describe('chain option lookup', () => {
-  const options = [...featuredOptionsFor(deals), ...moreOptionsFor(deals)];
+  const options = chainOptionsFor(deals);
   it('finds an option by id or by one of its chains', () => {
     expect(findChainOption(options, 'coop marked')?.id).toBe('Coop Marked');
     expect(findChainOption(options, 'kiwi')?.id).toBe('KIWI');
     expect(findChainOption(options, 'spar')?.id).toBe('Spar');
+    expect(findChainOption(options, 'REMA 1000')?.id).toBe('REMA');
   });
-  it('resolves a featured chain name that is not an id to «Alle», which lists every chain first', () => {
-    expect(findChainOption(options, 'Marked')?.id).toBe(ALL_CHAINS);
-    expect(findChainOption(options, 'REMA 1000')?.id).toBe(ALL_CHAINS);
-  });
-  it('returns undefined for an unknown chain', () => {
+  it('returns undefined for «Alle» and unknown chains', () => {
+    expect(findChainOption(options, ALL_CHAINS)).toBeUndefined();
     expect(findChainOption(options, 'Ukjent')).toBeUndefined();
   });
 });
@@ -118,7 +142,7 @@ describe('product chain matching', () => {
   });
   it('excludes products without a chain from a chain filter', () => {
     expect(productMatchesChain(deal(null), option('KIWI'))).toBe(false);
-    expect(productMatchesChain(deal(null), option(ALL_CHAINS))).toBe(false);
+    expect(productMatchesChain(deal(null), allFollowedOption(chainOptionsFor(deals)))).toBe(false);
   });
   it('lets everything through when the option has no chain list', () => {
     const anything = { id: 'x', label: 'x', chains: null, count: 0 };
