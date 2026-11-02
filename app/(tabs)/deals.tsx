@@ -119,6 +119,8 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
 export default function DealsScreen() {
   const { width } = useWindowDimensions();
   const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
+  const gridCardWidth =
+    (Math.min(width, 960) - 24 - 8 * (numColumns - 1)) / numColumns;
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -248,10 +250,11 @@ export default function DealsScreen() {
           cartQuantity={cart?.quantity ?? 0}
           onSelect={handleSelect}
           isGrid
+          gridCardWidth={gridCardWidth}
         />
       );
     },
-    [cartByEan, handleSelect],
+    [cartByEan, gridCardWidth, handleSelect],
   );
 
   if (deals === null && !error) {
@@ -443,6 +446,8 @@ function ChainSheet({
 function DealsSkeleton() {
   const { width } = useWindowDimensions();
   const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
+  const gridCardWidth =
+    (Math.min(width, 960) - 24 - 8 * (numColumns - 1)) / numColumns;
 
   return (
     <View style={styles.skeletonScreen}>
@@ -450,7 +455,10 @@ function DealsSkeleton() {
         {Array.from({ length: 3 }).map((_, row) => (
           <View key={row} style={styles.gridRow}>
             {Array.from({ length: numColumns }).map((__, column) => (
-              <View key={column} style={[styles.gridCard, styles.skeletonCard]}>
+              <View
+                key={column}
+                style={[styles.gridCard, styles.skeletonCard, { width: gridCardWidth }]}
+              >
                 <View style={[styles.gridThumb, styles.skeletonBlock]} />
                 <View style={styles.body}>
                   <View style={[styles.skeletonBlock, styles.skelPill]} />
@@ -472,12 +480,14 @@ const DealRow = memo(function DealRow({
   cartQuantity,
   onSelect,
   isGrid = false,
+  gridCardWidth,
 }: {
   item: MenyProduct;
   cartItemId: string | null;
   cartQuantity: number;
   onSelect: (item: MenyProduct) => void;
   isGrid?: boolean;
+  gridCardWidth?: number;
 }) {
   const favorites = useFavorites();
   const starred = favorites.some((f) => f.ean === item.ean);
@@ -615,7 +625,14 @@ const DealRow = memo(function DealRow({
   );
 
   return (
-    <View style={[styles.row, isGrid && styles.gridCard, inCart && styles.rowInCart]}>
+    <View
+      style={[
+        styles.row,
+        isGrid && styles.gridCard,
+        isGrid && { width: gridCardWidth, flexGrow: 0, flexShrink: 0 },
+        inCart && styles.rowInCart,
+      ]}
+    >
       {isGrid ? (
         <View style={styles.gridMedia}>
           {thumbnail}
@@ -1021,7 +1038,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   gridCard: {
-    flex: 1,
     minHeight: 270,
     flexDirection: 'column',
     alignItems: 'stretch',
