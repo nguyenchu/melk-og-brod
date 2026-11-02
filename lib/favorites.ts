@@ -17,10 +17,28 @@ export type FavoriteItem = {
 let cache: FavoriteItem[] | null = null;
 const listeners = new Set<() => void>();
 
+function parseFavorites(raw: string | null): FavoriteItem[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (f): f is FavoriteItem =>
+      typeof f === 'object' && f !== null && typeof (f as FavoriteItem).ean === 'string',
+  );
+}
+
+// Ødelagte data gir tom liste. Feiler selve lesingen fra AsyncStorage, caches
+// ingenting, slik at neste kall prøver igjen i stedet for å overskrive lagrede
+// favoritter med en tom liste.
 async function load(): Promise<FavoriteItem[]> {
   if (cache !== null) return cache;
   const raw = await AsyncStorage.getItem(FAVORITES_KEY);
-  cache = raw ? (JSON.parse(raw) as FavoriteItem[]) : [];
+  cache = parseFavorites(raw);
   return cache;
 }
 
@@ -48,7 +66,11 @@ export function useFavorites() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
 
   const sync = useCallback(async () => {
-    setFavorites(await load());
+    try {
+      setFavorites(await load());
+    } catch {
+      // Behold det vi viser nå; neste sync prøver å lese på nytt.
+    }
   }, []);
 
   useEffect(() => {
