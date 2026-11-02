@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCatalog, refreshCatalog } from './catalog';
+import { getCatalog } from './catalog';
 import type { MenyProduct } from './types';
 import { isLikelyCampaignText } from './campaigns';
 
@@ -460,12 +460,13 @@ const EXCLUDED_CHAINS = new Set([
   'Leske.no',
 ]);
 
-export async function fetchTopDeals(
+// Tilbudslista regnes ut fra katalogen som er hentet, enten fra cachen ved
+// oppstart eller fra nettet etterpå.
+export function selectTopDeals(
+  catalog: MenyProduct[],
   minDropPct = 10,
   limit = 100,
-  options: { forceNetwork?: boolean } = {},
-): Promise<MenyProduct[]> {
-  const catalog = options.forceNetwork ? await refreshCatalog() : await getCatalog();
+): MenyProduct[] {
   const products = catalog.filter(
     (product) =>
       !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
