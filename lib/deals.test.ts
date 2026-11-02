@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@react-native-async-storage/async-storage', () => ({ default: {} }));
+const getItem = vi.hoisted(() => vi.fn());
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem } }));
 vi.mock('./catalog', () => ({}));
 
-const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer } = await import('./deals');
+const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer, loadCachedDeals } =
+  await import('./deals');
 
 const NOW = Date.parse('2026-09-24T08:00:00+02:00');
 
@@ -46,5 +48,34 @@ describe('isUpcomingOffer', () => {
   it('treats offers without a start date as running', () => {
     expect(isUpcomingOffer({ valid_from: null }, NOW)).toBe(false);
     expect(isUpcomingOffer({}, NOW)).toBe(false);
+  });
+});
+
+describe('loadCachedDeals', () => {
+  const deal = { ean: '7038010000000', name: 'Melk', valid_until: null };
+
+  it('returns nothing when the cache is missing, unreadable or not a list', async () => {
+    for (const raw of [null, '{ikke json', '{"ean":"1","name":"Melk"}', 'null']) {
+      getItem.mockResolvedValueOnce(raw);
+      await expect(loadCachedDeals()).resolves.toBeNull();
+    }
+  });
+
+  it('returns nothing instead of throwing when storage fails', async () => {
+    getItem.mockRejectedValueOnce(new Error('disk'));
+    await expect(loadCachedDeals()).resolves.toBeNull();
+  });
+
+  it('drops rows without ean or name, rows with a bad date, and expired offers', async () => {
+    getItem.mockResolvedValueOnce(
+      JSON.stringify([
+        null,
+        { name: 'uten ean' },
+        { ean: '1', name: 'Dato som tall', valid_until: 20261101 },
+        { ean: '2', name: 'Utløpt', valid_until: '2000-01-01T00:00:00+0000' },
+        deal,
+      ]),
+    );
+    await expect(loadCachedDeals()).resolves.toEqual([deal]);
   });
 });

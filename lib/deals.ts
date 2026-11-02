@@ -18,11 +18,31 @@ export async function saveCachedDeals(deals: MenyProduct[]) {
   }
 }
 
+// Cachen er bare til offline-visning. Data som ikke kan leses, og rader uten
+// ean og navn, behandles som manglende cache i stedet for å velte tilbudssiden.
+function isCachedDeal(value: unknown): value is MenyProduct {
+  if (!value || typeof value !== 'object') return false;
+  const deal = value as Record<string, unknown>;
+  return (
+    typeof deal.ean === 'string' &&
+    typeof deal.name === 'string' &&
+    (deal.valid_from == null || typeof deal.valid_from === 'string') &&
+    (deal.valid_until == null || typeof deal.valid_until === 'string')
+  );
+}
+
 export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
-  const raw = await AsyncStorage.getItem(DEALS_CACHE_KEY);
-  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    const raw = await AsyncStorage.getItem(DEALS_CACHE_KEY);
+    if (!raw) return null;
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
   // Cachen kan være fra forrige uke (offline-fallback) – ikke vis utløpte tilbud.
-  return (JSON.parse(raw) as MenyProduct[]).filter((product) => !isExpiredOffer(product));
+  return parsed.filter(isCachedDeal).filter((product) => !isExpiredOffer(product));
 }
 
 function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_source'>) {
