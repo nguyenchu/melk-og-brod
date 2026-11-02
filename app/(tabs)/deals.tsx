@@ -254,7 +254,7 @@ export default function DealsScreen() {
         />
       );
     },
-    [cartByEan, handleSelect],
+    [cartByEan, gridCardWidth, handleSelect],
   );
 
   if (deals === null && !error) {
