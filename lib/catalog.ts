@@ -24,10 +24,27 @@ export function getCatalogComputedAt(): string | null {
   return memoryComputedAt;
 }
 
+// Cachen kan være korrupt eller fra et eldre format; da er den verdiløs og
+// behandles som bom, slik at vi henter fra nettet i stedet for å krasje.
+function isCachedCatalog(value: unknown): value is CachedCatalog {
+  if (!value || typeof value !== 'object') return false;
+  const { fetched_at, payload } = value as Partial<CachedCatalog>;
+  return (
+    typeof fetched_at === 'number' &&
+    Number.isFinite(fetched_at) &&
+    !!payload &&
+    typeof payload === 'object' &&
+    Array.isArray(payload.products) &&
+    payload.products.every((p) => !!p && typeof p === 'object')
+  );
+}
+
 async function readCache(): Promise<CachedCatalog | null> {
   try {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
-    return raw ? (JSON.parse(raw) as CachedCatalog) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isCachedCatalog(parsed) ? parsed : null;
   } catch {
     return null;
   }
