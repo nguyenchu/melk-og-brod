@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { MenyProduct } from './types';
 
 const getItem = vi.hoisted(() => vi.fn());
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem } }));
 vi.mock('./catalog', () => ({}));
 
-const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer, loadCachedDeals } =
+const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer, loadCachedDeals, selectTopDeals } =
   await import('./deals');
 
 const NOW = Date.parse('2026-09-24T08:00:00+02:00');
@@ -77,5 +78,43 @@ describe('loadCachedDeals', () => {
       ]),
     );
     await expect(loadCachedDeals()).resolves.toEqual([deal]);
+  });
+});
+
+describe('selectTopDeals', () => {
+  const product = (ean: string, fields: Partial<MenyProduct>): MenyProduct => ({
+    ean,
+    name: `Vare ${ean}`,
+    brand: null,
+    image_url: null,
+    vendor_url: null,
+    chain: 'KIWI',
+    current_price: 10,
+    median_30d: null,
+    original_price: null,
+    price_source: 'median',
+    drop_pct: null,
+    campaign_text: null,
+    cheapest_price: null,
+    cheapest_chain: null,
+    stores: null,
+    computed_at: '2026-09-24T06:00:00Z',
+    price_history: null,
+    ...fields,
+  });
+
+  it('ranks running offers by discount and skips excluded chains, expired and small drops', () => {
+    const catalog = [
+      product('1', { drop_pct: 15 }),
+      product('2', { drop_pct: 40 }),
+      product('3', { drop_pct: 60, chain: 'Oda' }),
+      product('4', { drop_pct: 3 }),
+      product('5', { drop_pct: 50, valid_from: '2999-01-01T00:00:00+0000' }),
+      product('6', { drop_pct: 70, valid_until: '2000-01-01T00:00:00+0000' }),
+    ];
+    expect(selectTopDeals(catalog, 10).map((p) => p.ean)).toEqual(['2', '1', '5']);
+    expect(selectTopDeals(catalog, 10, 2).map((p) => p.ean)).toEqual(['2', '1']);
+    // Katalogen deles med resten av appen og må ikke sorteres om.
+    expect(catalog.map((p) => p.ean)).toEqual(['1', '2', '3', '4', '5', '6']);
   });
 });

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -23,9 +23,9 @@ import {
 } from '@/lib/chains';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
-import { fetchTopDeals, isUpcomingOffer, loadCachedDeals, saveCachedDeals } from '@/lib/deals';
+import { isUpcomingOffer, loadCachedDeals, saveCachedDeals, selectTopDeals } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
-import { hasDataConfig } from '@/lib/catalog';
+import { getCachedCatalog, hasDataConfig, refreshCatalog } from '@/lib/catalog';
 import { pricePresentation } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
 
@@ -156,31 +156,49 @@ export default function DealsScreen() {
     return map;
   }, [cartItems]);
 
-  const load = useCallback(async (forceNetwork = false) => {
+  // Katalogen lista sist ble regnet ut fra. En uendret katalog (304) kommer
+  // tilbake som samme liste, og da slipper vi å regne ut og lagre på nytt.
+  const shownCatalog = useRef<MenyProduct[] | null>(null);
+
+  const showCatalog = useCallback((catalog: MenyProduct[]) => {
+    if (catalog === shownCatalog.current) return null;
+    shownCatalog.current = catalog;
+    const rows = selectTopDeals(catalog, 5, DEALS_SCREEN_LIMIT);
+    setDeals(rows);
+    setFromCache(false);
+    setError(null);
+    return rows;
+  }, []);
+
+  const load = useCallback(async () => {
     if (!hasDataConfig()) {
       setError('Tilbud er ikke tilgjengelig akkurat nå. Prøv igjen senere.');
       return;
     }
+    // Vis siste katalog fra cachen med en gang, så oppstarten ikke venter på
+    // nettet. Spørsmålet til serveren etterpå koster nesten ingenting når
+    // katalogen er uendret.
+    const cached = await getCachedCatalog();
+    if (cached) showCatalog(cached);
     try {
-      setError(null);
-      const rows = await fetchTopDeals(5, DEALS_SCREEN_LIMIT, { forceNetwork });
-      setDeals(rows);
-      setFromCache(false);
-      saveCachedDeals(rows);
+      const rows = showCatalog(await refreshCatalog());
+      if (rows) saveCachedDeals(rows);
     } catch {
-      const cached = await loadCachedDeals();
-      if (cached && cached.length > 0) {
-        setDeals(cached);
+      // Vi viser allerede katalogen fra cachen; den er bedre enn tilbudscachen.
+      if (shownCatalog.current) return;
+      const cachedDeals = await loadCachedDeals();
+      if (cachedDeals && cachedDeals.length > 0) {
+        setDeals(cachedDeals);
         setFromCache(true);
         setError(null);
       } else {
         setError('Ingen nettilgang og ingen lagrede tilbud.');
       }
     }
-  }, []);
+  }, [showCatalog]);
 
   useEffect(() => {
-    load(true);
+    load();
   }, [load]);
 
   const latestComputedAt = deals?.[0]?.computed_at ?? null;
@@ -188,7 +206,7 @@ export default function DealsScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await load(true);
+    await load();
     setRefreshing(false);
   }
 
