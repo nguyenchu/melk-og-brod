@@ -265,6 +265,19 @@ function normalizeSearchText(value: string) {
     .trim();
 }
 
+export function matchesDealSearch(
+  product: Pick<MenyProduct, 'name' | 'brand' | 'chain' | 'campaign_text'>,
+  query: string,
+) {
+  const terms = normalizeSearchText(query).split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+
+  const searchable = normalizeSearchText(
+    [product.name, product.brand, product.chain, product.campaign_text].filter(Boolean).join(' '),
+  );
+  return terms.every((term) => searchable.includes(term));
+}
+
 function getStapleProfile(terms: string[]) {
   return terms.length === 1 ? STAPLE_PROFILES[terms[0]] : undefined;
 }

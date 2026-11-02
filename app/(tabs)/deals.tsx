@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -27,7 +28,13 @@ import {
 } from '@/lib/chains';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
-import { isUpcomingOffer, loadCachedDeals, saveCachedDeals, selectTopDeals } from '@/lib/deals';
+import {
+  isUpcomingOffer,
+  loadCachedDeals,
+  matchesDealSearch,
+  saveCachedDeals,
+  selectTopDeals,
+} from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { toggleFollowedChain, useFollowedChains } from '@/lib/followed-chains';
 import { getCachedCatalog, hasDataConfig, refreshCatalog } from '@/lib/catalog';
@@ -117,6 +124,7 @@ export default function DealsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [chainFilter, setChainFilter] = useState<string>(ALL_CHAINS);
   const [chainSheetOpen, setChainSheetOpen] = useState(false);
   const followed = useFollowedChains();
@@ -148,8 +156,12 @@ export default function DealsScreen() {
   );
 
   const filteredDeals = useMemo(
-    () => (deals ?? []).filter((deal) => productMatchesChain(deal, selectedChain)),
-    [deals, selectedChain],
+    () =>
+      (deals ?? []).filter(
+        (deal) =>
+          productMatchesChain(deal, selectedChain) && matchesDealSearch(deal, searchQuery),
+      ),
+    [deals, selectedChain, searchQuery],
   );
   const emptyMessage =
     followedOptions.length === 0
@@ -157,6 +169,9 @@ export default function DealsScreen() {
       : selectedChain.id !== ALL_CHAINS
         ? `Ingen aktive kampanjer for ${selectedChain.label} akkurat nå.`
         : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
+  const listEmptyMessage = searchQuery.trim()
+    ? `Ingen tilbud matcher «${searchQuery.trim()}».`
+    : emptyMessage;
 
   const cartByEan = useMemo(() => {
     const map = new Map<string, { id: string; quantity: number }>();
@@ -254,6 +269,7 @@ export default function DealsScreen() {
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         stickyHeaderIndices={[0]}
+        keyboardShouldPersistTaps="handled"
         initialNumToRender={10}
         maxToRenderPerBatch={10}
         windowSize={7}
@@ -265,6 +281,28 @@ export default function DealsScreen() {
               </View>
             ) : (
               <>
+                <View style={styles.searchBar}>
+                  <Ionicons name="search" size={18} color="#888" />
+                  <TextInput
+                    accessibilityLabel="Søk i tilbudene"
+                    autoCorrect={false}
+                    onChangeText={setSearchQuery}
+                    placeholder="Søk i tilbudene"
+                    returnKeyType="search"
+                    style={styles.searchInput}
+                    value={searchQuery}
+                  />
+                  {searchQuery.length > 0 ? (
+                    <Pressable
+                      accessibilityLabel="Tøm søket"
+                      accessibilityRole="button"
+                      hitSlop={10}
+                      onPress={() => setSearchQuery('')}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#bbb" />
+                    </Pressable>
+                  ) : null}
+                </View>
                 <View style={styles.headerBlock}>
                   <View style={styles.headerTitleRow}>
                     <Text style={styles.headerSub} numberOfLines={1}>
@@ -325,7 +363,7 @@ export default function DealsScreen() {
             )}
           </View>
         }
-        ListEmptyComponent={!error ? <Text style={styles.empty}>{emptyMessage}</Text> : null}
+        ListEmptyComponent={!error ? <Text style={styles.empty}>{listEmptyMessage}</Text> : null}
         renderItem={renderItem}
       />
       {selectedDeal && (
@@ -943,6 +981,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 42,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 9, color: '#111' },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerSub: { flex: 1, color: '#666' },
   chainsButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },

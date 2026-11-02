@@ -5,8 +5,14 @@ const getItem = vi.hoisted(() => vi.fn());
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem } }));
 vi.mock('./catalog', () => ({}));
 
-const { isActiveDealProduct, isExpiredOffer, isUpcomingOffer, loadCachedDeals, selectTopDeals } =
-  await import('./deals');
+const {
+  isActiveDealProduct,
+  isExpiredOffer,
+  isUpcomingOffer,
+  loadCachedDeals,
+  matchesDealSearch,
+  selectTopDeals,
+} = await import('./deals');
 
 const NOW = Date.parse('2026-09-24T08:00:00+02:00');
 
@@ -49,6 +55,29 @@ describe('isUpcomingOffer', () => {
   it('treats offers without a start date as running', () => {
     expect(isUpcomingOffer({ valid_from: null }, NOW)).toBe(false);
     expect(isUpcomingOffer({}, NOW)).toBe(false);
+  });
+});
+
+describe('matchesDealSearch', () => {
+  const product = {
+    name: 'Økologisk melk',
+    brand: 'TINE',
+    chain: 'KIWI',
+    campaign_text: '3 for 2',
+  };
+
+  it('matches multiple terms without regard to case or Norwegian characters', () => {
+    expect(matchesDealSearch(product, 'okologisk MELK')).toBe(true);
+    expect(matchesDealSearch(product, 'kiwi tine')).toBe(true);
+  });
+
+  it('matches campaign text and returns false when a term is missing', () => {
+    expect(matchesDealSearch(product, '3 2')).toBe(true);
+    expect(matchesDealSearch(product, 'melk havre')).toBe(false);
+  });
+
+  it('matches every deal when the query is blank', () => {
+    expect(matchesDealSearch(product, '   ')).toBe(true);
   });
 });
 
