@@ -17,6 +17,41 @@ export type FavoriteItem = {
 let cache: FavoriteItem[] | null = null;
 const listeners = new Set<() => void>();
 
+// Favoritter uten ean eller navn kastes. Ugyldig bilde- og prisinfo blir null,
+// slik at favoritten beholdes og skjermene ikke får uventede typer.
+function normalizeFavorite(value: unknown): FavoriteItem | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const item = value as Record<string, unknown>;
+  if (typeof item.ean !== 'string' || typeof item.name !== 'string') return null;
+
+  const favorite: FavoriteItem = {
+    ean: item.ean,
+    name: item.name,
+    image_url: typeof item.image_url === 'string' ? item.image_url : null,
+    price: typeof item.price === 'number' && Number.isFinite(item.price) ? item.price : null,
+  };
+  if ('unit_price' in item) {
+    favorite.unit_price =
+      typeof item.unit_price === 'number' && Number.isFinite(item.unit_price)
+        ? item.unit_price
+        : null;
+  }
+  if ('price_measure' in item) {
+    const measure = item.price_measure as Record<string, unknown> | null;
+    favorite.price_measure =
+      typeof measure === 'object' &&
+      measure !== null &&
+      typeof measure.amount === 'number' &&
+      Number.isFinite(measure.amount) &&
+      measure.amount > 0 &&
+      (measure.unit === 'kg' || measure.unit === 'l') &&
+      typeof measure.loose === 'boolean'
+        ? { amount: measure.amount, unit: measure.unit, loose: measure.loose }
+        : null;
+  }
+  return favorite;
+}
+
 function parseFavorites(raw: string | null): FavoriteItem[] {
   if (!raw) return [];
   let parsed: unknown;
@@ -26,10 +61,7 @@ function parseFavorites(raw: string | null): FavoriteItem[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (f): f is FavoriteItem =>
-      typeof f === 'object' && f !== null && typeof (f as FavoriteItem).ean === 'string',
-  );
+  return parsed.map(normalizeFavorite).filter((f): f is FavoriteItem => f !== null);
 }
 
 // Ødelagte data gir tom liste. Feiler selve lesingen fra AsyncStorage, caches

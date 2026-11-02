@@ -55,6 +55,64 @@ it('drops entries without a string ean but keeps valid ones', async () => {
   expect(JSON.parse(storage.get(KEY)!)).toEqual([milk, { ...milk, ean: '999' }]);
 });
 
+it('drops favorites with missing or non-string names before they reach the UI', async () => {
+  storage.set(
+    KEY,
+    JSON.stringify([
+      { ean: 'missing' },
+      { ean: 'object', name: { bad: true } },
+      { ean: 'number', name: 42 },
+      milk,
+    ]),
+  );
+  const { toggleFavorite } = await import('./favorites');
+  await toggleFavorite({ ...milk, ean: '999' });
+  expect(JSON.parse(storage.get(KEY)!)).toEqual([milk, { ...milk, ean: '999' }]);
+});
+
+it('keeps older favorites without optional metadata and supplies safe missing values', async () => {
+  storage.set(KEY, JSON.stringify([{ ean: 'old', name: 'Eldre favoritt' }]));
+  const { toggleFavorite } = await import('./favorites');
+  await toggleFavorite(milk);
+  expect(JSON.parse(storage.get(KEY)!)).toEqual([
+    { ean: 'old', name: 'Eldre favoritt', image_url: null, price: null },
+    milk,
+  ]);
+});
+
+it('normalizes unsafe price and image metadata without losing the favorite', async () => {
+  storage.set(
+    KEY,
+    JSON.stringify([
+      {
+        ...milk,
+        image_url: { uri: 'invalid' },
+        price: '24.9',
+        price_measure: { amount: 1, unit: 'bad', loose: true },
+        unit_price: '24.9',
+      },
+    ]),
+  );
+  const { toggleFavorite } = await import('./favorites');
+  await toggleFavorite({ ...milk, ean: '999' });
+  expect(JSON.parse(storage.get(KEY)!)).toEqual([
+    { ...milk, image_url: null, price: null, price_measure: null, unit_price: null },
+    { ...milk, ean: '999' },
+  ]);
+});
+
+it('keeps valid price metadata and removes a favorite when toggled again', async () => {
+  const weighed = {
+    ...milk,
+    price_measure: { amount: 1, unit: 'l', loose: false },
+    unit_price: 24.9,
+  };
+  storage.set(KEY, JSON.stringify([weighed, { ...milk, ean: '999' }]));
+  const { toggleFavorite } = await import('./favorites');
+  await toggleFavorite({ ...milk, ean: '999' });
+  expect(JSON.parse(storage.get(KEY)!)).toEqual([weighed]);
+});
+
 it('overwrites corrupt data with a valid list on the next toggle', async () => {
   storage.set(KEY, '{not json');
   const { toggleFavorite } = await import('./favorites');
