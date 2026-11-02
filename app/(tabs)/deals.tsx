@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import {
@@ -35,6 +36,7 @@ import type { MenyProduct, PricePoint } from '@/lib/types';
 
 const CHAIN_FILTER_KEY = 'deals.chainFilter.v1';
 const DEALS_SCREEN_LIMIT = 5000;
+const TABLET_BREAKPOINT = 760;
 
 // Datakilden regenereres nattlig av kassal-sync. Er den eldre enn dette, har
 // syncen stoppet, og prisene kan ha endret seg for lengst – da sier vi det
@@ -108,6 +110,8 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
 }
 
 export default function DealsScreen() {
+  const { width } = useWindowDimensions();
+  const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,6 +232,7 @@ export default function DealsScreen() {
           cartItemId={cart?.id ?? null}
           cartQuantity={cart?.quantity ?? 0}
           onSelect={handleSelect}
+          isGrid
         />
       );
     },
@@ -241,7 +246,10 @@ export default function DealsScreen() {
   return (
     <>
       <FlatList
+        key={`deals-${numColumns}`}
         data={filteredDeals}
+        numColumns={numColumns}
+        columnWrapperStyle={styles.gridRow}
         keyExtractor={(d) => d.ean}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -395,18 +403,24 @@ function ChainSheet({
 }
 
 function DealsSkeleton() {
+  const { width } = useWindowDimensions();
+  const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
+
   return (
     <View style={styles.skeletonScreen}>
       <View style={styles.list}>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <View key={i} style={styles.row}>
-            <View style={[styles.thumb, styles.skeletonBlock]} />
-            <View style={styles.body}>
-              <View style={[styles.skeletonBlock, styles.skelPill]} />
-              <View style={[styles.skeletonBlock, styles.skelLineWide]} />
-              <View style={[styles.skeletonBlock, styles.skelLineNarrow]} />
-            </View>
-            <View style={[styles.skeletonBlock, styles.skelBadge]} />
+        {Array.from({ length: 3 }).map((_, row) => (
+          <View key={row} style={styles.gridRow}>
+            {Array.from({ length: numColumns }).map((__, column) => (
+              <View key={column} style={[styles.gridCard, styles.skeletonCard]}>
+                <View style={[styles.gridThumb, styles.skeletonBlock]} />
+                <View style={styles.body}>
+                  <View style={[styles.skeletonBlock, styles.skelPill]} />
+                  <View style={[styles.skeletonBlock, styles.skelLineWide]} />
+                  <View style={[styles.skeletonBlock, styles.skelLineNarrow]} />
+                </View>
+              </View>
+            ))}
           </View>
         ))}
       </View>
@@ -419,11 +433,13 @@ const DealRow = memo(function DealRow({
   cartItemId,
   cartQuantity,
   onSelect,
+  isGrid = false,
 }: {
   item: MenyProduct;
   cartItemId: string | null;
   cartQuantity: number;
   onSelect: (item: MenyProduct) => void;
+  isGrid?: boolean;
 }) {
   const favorites = useFavorites();
   const starred = favorites.some((f) => f.ean === item.ean);
@@ -477,16 +493,100 @@ const DealRow = memo(function DealRow({
   const unitPriceLabel = presentation.secondary;
   const showBrand = shouldShowBrand(item.name, item.brand);
 
-  return (
-    <View style={[styles.row, inCart && styles.rowInCart]}>
-      {item.image_url ? (
-        <Image source={item.image_url} style={styles.thumb} contentFit="contain" />
+  const thumbnail = item.image_url ? (
+    <Image
+      source={item.image_url}
+      style={[styles.thumb, isGrid && styles.gridThumb]}
+      contentFit="contain"
+    />
+  ) : (
+    <View
+      style={[styles.thumb, isGrid && styles.gridThumb, styles.thumbPlaceholder]}
+    >
+      <Ionicons name="image-outline" size={24} color="#ccc" />
+    </View>
+  );
+  const offerBadge = (
+    <View style={styles.dropBadge}>
+      {drop > 0 ? (
+        <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
       ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <Ionicons name="image-outline" size={24} color="#ccc" />
-        </View>
+        <Text style={styles.dropText}>Tilbud</Text>
       )}
-      <View style={styles.body}>
+    </View>
+  );
+  const cartControl = inCart ? (
+    <View style={styles.quantityControl}>
+      <Pressable onPress={onDecrement} hitSlop={8} style={styles.quantityButton}>
+        <Ionicons name="remove" size={16} color="#444" />
+      </Pressable>
+      <Text style={styles.quantityValue}>{cartQuantity}</Text>
+      <Pressable onPress={onIncrement} hitSlop={8} style={styles.quantityButton}>
+        <Ionicons name="add" size={16} color="#444" />
+      </Pressable>
+    </View>
+  ) : (
+    <Pressable
+      onPress={onIncrement}
+      style={styles.addBtn}
+      accessibilityRole="button"
+      accessibilityLabel="Legg til i handleliste"
+    >
+      <Ionicons name="add" size={20} color="#fff" />
+    </Pressable>
+  );
+  const rightExtras = (
+    <View style={styles.rightExtras}>
+      <Pressable
+        onPress={() =>
+          toggleFavorite({
+            ean: item.ean,
+            name: item.name,
+            image_url: item.image_url,
+            price: item.current_price,
+            price_measure: item.price_measure,
+            unit_price: item.unit_price,
+          })
+        }
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={starred ? 'Fjern fra favoritter' : 'Legg til i favoritter'}
+      >
+        <Ionicons
+          name={starred ? 'star' : 'star-outline'}
+          size={16}
+          color={starred ? '#F5A623' : '#bbb'}
+        />
+      </Pressable>
+      <Pressable
+        onPress={() => onSelect(item)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Vis prishistorikk"
+      >
+        <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
+      </Pressable>
+    </View>
+  );
+  const actions = (
+    <View style={styles.right}>
+      {offerBadge}
+      {cartControl}
+      {rightExtras}
+    </View>
+  );
+
+  return (
+    <View style={[styles.row, isGrid && styles.gridCard, inCart && styles.rowInCart]}>
+      {isGrid ? (
+        <View style={styles.gridMedia}>
+          {thumbnail}
+          <View style={styles.gridBadge}>{offerBadge}</View>
+        </View>
+      ) : (
+        thumbnail
+      )}
+      <View style={[styles.body, isGrid && styles.gridBody]}>
         {item.chain ? (
           <View style={styles.chainPill}>
             <Text style={styles.chainPillText} numberOfLines={1}>
@@ -536,54 +636,14 @@ const DealRow = memo(function DealRow({
           <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
         ) : null}
       </View>
-      <View style={styles.right}>
-        <View style={styles.dropBadge}>
-          {drop > 0 ? (
-            <Text style={styles.dropText}>−{drop.toFixed(0)}%</Text>
-          ) : (
-            <Text style={styles.dropText}>Tilbud</Text>
-          )}
+      {isGrid ? (
+        <View style={styles.gridFooter}>
+          {rightExtras}
+          {cartControl}
         </View>
-        {inCart ? (
-          <View style={styles.quantityControl}>
-            <Pressable onPress={onDecrement} hitSlop={8} style={styles.quantityButton}>
-              <Ionicons name="remove" size={16} color="#444" />
-            </Pressable>
-            <Text style={styles.quantityValue}>{cartQuantity}</Text>
-            <Pressable onPress={onIncrement} hitSlop={8} style={styles.quantityButton}>
-              <Ionicons name="add" size={16} color="#444" />
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable onPress={onIncrement} style={styles.addBtn}>
-            <Ionicons name="add" size={20} color="#fff" />
-          </Pressable>
-        )}
-        <View style={styles.rightExtras}>
-          <Pressable
-            onPress={() =>
-              toggleFavorite({
-                ean: item.ean,
-                name: item.name,
-                image_url: item.image_url,
-                price: item.current_price,
-                price_measure: item.price_measure,
-                unit_price: item.unit_price,
-              })
-            }
-            hitSlop={8}
-          >
-            <Ionicons
-              name={starred ? 'star' : 'star-outline'}
-              size={16}
-              color={starred ? '#F5A623' : '#bbb'}
-            />
-          </Pressable>
-          <Pressable onPress={() => onSelect(item)} hitSlop={8}>
-            <Ionicons name="stats-chart-outline" size={14} color="#aaa" />
-          </Pressable>
-        </View>
-      </View>
+      ) : (
+        actions
+      )}
     </View>
   );
 });
@@ -873,10 +933,9 @@ const styles = StyleSheet.create({
   skelPill: { width: 60, height: 14, borderRadius: 6, marginBottom: 6 },
   skelLineWide: { width: '80%', height: 14, marginBottom: 6 },
   skelLineNarrow: { width: '45%', height: 12 },
-  skelBadge: { width: 44, height: 22, borderRadius: 6 },
-  // maxWidth + sentrering gir en pen, sentrert kolonne på brede skjermer (web/nettbrett)
-  // i stedet for utstrakte full-bredde rader. På mobil (< 640) er det et no-op.
-  list: { padding: 12, gap: 8, width: '100%', maxWidth: 640, alignSelf: 'center' },
+  // Sentrert innhold holder kortene lesbare på nettbrett og nett.
+  list: { padding: 12, gap: 8, width: '100%', maxWidth: 960, alignSelf: 'center' },
+  gridRow: { flexDirection: 'row', gap: 8 },
   stickyHeader: {
     backgroundColor: '#f5f5f7',
     paddingBottom: 8,
@@ -912,13 +971,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  gridCard: {
+    flex: 1,
+    minHeight: 270,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+  },
+  skeletonCard: { justifyContent: 'flex-start' },
+  gridMedia: {
+    height: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  gridBadge: { position: 'absolute', top: 0, left: 0 },
+  gridThumb: { width: 104, height: 104, borderRadius: 8, backgroundColor: '#f5f5f7' },
+  gridBody: { flex: 1, width: '100%' },
+  gridFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 'auto',
+  },
   rowInCart: { backgroundColor: '#F2FBF5', opacity: 0.92 },
   thumb: { width: 48, height: 48, borderRadius: 8, backgroundColor: '#f5f5f7' },
   thumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   body: { flex: 1 },
   name: { fontSize: 15, fontWeight: '600', color: '#111' },
   brand: { fontSize: 12, color: '#888', marginTop: 2 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 3 },
+  priceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 8,
+    marginTop: 3,
+  },
   price: { fontSize: 16, fontWeight: '700', color: '#E10A0A' },
   median: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
   campaign: {
@@ -931,13 +1022,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
+    maxWidth: '100%',
   },
   campaignBundle: { backgroundColor: '#0B6B3A' },
   campaignMember: { backgroundColor: '#005B99' },
   campaignBonus: { backgroundColor: '#7A4E00' },
   campaignClearance: { backgroundColor: '#A63D40' },
   campaignText: {
-    fontSize: 12,
+    flexShrink: 1,
+    fontSize: 11,
     color: '#fff',
     fontWeight: '600',
   },
