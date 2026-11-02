@@ -1,0 +1,3 @@
+# LF i arbeidskopien på alle plattformer. Med Windows-standarden (CRLF) klarer
+# ikke Vite å fjerne #!-linjen i scripts/android.mjs, og testen feiler.
+* text=auto eol=lf

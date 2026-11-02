@@ -29,7 +29,8 @@ export function measureFromMetadata(input: {
     cl: { unit: 'l', divisor: 100 },
     ml: { unit: 'l', divisor: 1000 },
   };
-  const conversion = unit ? conversions[unit] : null;
+  const conversion =
+    unit && Object.prototype.hasOwnProperty.call(conversions, unit) ? conversions[unit] : null;
   if (!conversion) return null;
   return {
     amount: weight / conversion.divisor,
