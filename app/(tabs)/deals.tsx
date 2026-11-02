@@ -16,15 +16,19 @@ import {
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import {
   ALL_CHAINS,
-  featuredOptionsFor,
+  allFollowedOption,
+  chainOptionsFor,
   findChainOption,
-  moreOptionsFor,
+  followedOptionsFor,
+  isFeaturedChainOption,
   productMatchesChain,
+  type ChainOption,
 } from '@/lib/chains';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import { isUpcomingOffer, loadCachedDeals, saveCachedDeals, selectTopDeals } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
+import { toggleFollowedChain, useFollowedChains } from '@/lib/followed-chains';
 import { getCachedCatalog, hasDataConfig, refreshCatalog } from '@/lib/catalog';
 import { pricePresentation } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
@@ -110,7 +114,8 @@ export default function DealsScreen() {
   const [fromCache, setFromCache] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<MenyProduct | null>(null);
   const [chainFilter, setChainFilter] = useState<string>(ALL_CHAINS);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [chainSheetOpen, setChainSheetOpen] = useState(false);
+  const followed = useFollowedChains();
   const { items: cartItems } = useCart();
 
   useEffect(() => {
@@ -123,29 +128,31 @@ export default function DealsScreen() {
 
   const selectChain = useCallback((chain: string) => {
     setChainFilter(chain);
-    setMoreMenuOpen(false);
     AsyncStorage.setItem(CHAIN_FILTER_KEY, chain).catch(() => {});
   }, []);
 
-  const featuredOptions = useMemo(() => featuredOptionsFor(deals), [deals]);
-  const moreOptions = useMemo(() => moreOptionsFor(deals), [deals]);
-  const selectedChain = useMemo(
-    () => findChainOption([...featuredOptions, ...moreOptions], chainFilter) ?? featuredOptions[0],
-    [featuredOptions, moreOptions, chainFilter],
+  const chainOptions = useMemo(() => chainOptionsFor(deals), [deals]);
+  const followedOptions = useMemo(
+    () => followedOptionsFor(chainOptions, followed),
+    [chainOptions, followed],
   );
-  // En kjede valgt fra «Flere»-panelet (ikke blant de utvalgte) vises på selve knappen.
-  const selectedIsFeatured = featuredOptions.some((option) => option.id === selectedChain.id);
-  const moreActive = !selectedIsFeatured;
-  const moreLabel = moreActive ? selectedChain.label : 'Flere';
+  const allFollowed = useMemo(() => allFollowedOption(followedOptions), [followedOptions]);
+  // Et lagret filter på en kjede brukeren ikke lenger følger faller tilbake til «Alle mine».
+  const selectedChain = useMemo(
+    () => findChainOption(followedOptions, chainFilter) ?? allFollowed,
+    [followedOptions, allFollowed, chainFilter],
+  );
 
   const filteredDeals = useMemo(
     () => (deals ?? []).filter((deal) => productMatchesChain(deal, selectedChain)),
     [deals, selectedChain],
   );
   const emptyMessage =
-    selectedChain.id !== ALL_CHAINS
-      ? `Ingen aktive kampanjer for ${selectedChain.label} akkurat nå.`
-      : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
+    followedOptions.length === 0
+      ? 'Du følger ingen kjeder. Trykk «Kjeder» for å velge hvilke du vil se tilbud fra.'
+      : selectedChain.id !== ALL_CHAINS
+        ? `Ingen aktive kampanjer for ${selectedChain.label} akkurat nå.`
+        : 'Ingen aktive kampanjer akkurat nå. Prøv igjen senere.';
 
   const cartByEan = useMemo(() => {
     const map = new Map<string, { id: string; quantity: number }>();
@@ -251,11 +258,25 @@ export default function DealsScreen() {
             ) : (
               <>
                 <View style={styles.headerBlock}>
-                  <Text style={styles.headerSub}>
-                    {selectedChain.id === ALL_CHAINS
-                      ? 'Tilbud fra utvalgte kjeder'
-                      : `Tilbud fra ${selectedChain.label}`}
-                  </Text>
+                  <View style={styles.headerTitleRow}>
+                    <Text style={styles.headerSub} numberOfLines={1}>
+                      {selectedChain.id !== ALL_CHAINS
+                        ? `Tilbud fra ${selectedChain.label}`
+                        : followedOptions.length === 1
+                          ? `Tilbud fra ${followedOptions[0].label}`
+                          : 'Tilbud fra mine kjeder'}
+                    </Text>
+                    <Pressable
+                      onPress={() => setChainSheetOpen(true)}
+                      style={styles.chainsButton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Velg kjeder"
+                      hitSlop={8}
+                    >
+                      <Ionicons name="options-outline" size={16} color="#E10A0A" />
+                      <Text style={styles.chainsButtonText}>Kjeder</Text>
+                    </Pressable>
+                  </View>
                   {fromCache ? (
                     <Text style={styles.cacheNotice}>
                       Viser sist hentede tilbud · ingen nettilgang
@@ -268,57 +289,19 @@ export default function DealsScreen() {
                     </Text>
                   ) : null}
                 </View>
-                {featuredOptions.length > 1 ? (
+                {/* Med bare én fulgt kjede er det ingenting å velge mellom. */}
+                {followedOptions.length > 1 ? (
                   <View style={styles.filterRow}>
-                    {featuredOptions.map((option) => {
+                    {[allFollowed, ...followedOptions].map((option) => {
                       const active = option.id === selectedChain.id;
                       return (
                         <Pressable
                           key={option.id}
-                          onPress={() => selectChain(option.id)}
+                          // Trykk på aktiv kjede igjen går tilbake til «Alle mine».
+                          onPress={() => selectChain(active ? ALL_CHAINS : option.id)}
                           style={[styles.filterChip, active && styles.filterChipActive]}
-                        >
-                          <Text
-                            style={[styles.filterChipText, active && styles.filterChipTextActive]}
-                          >
-                            {option.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                    {moreOptions.length > 0 ? (
-                      <Pressable
-                        onPress={() => setMoreMenuOpen((open) => !open)}
-                        style={[styles.filterChip, moreActive && styles.filterChipActive]}
-                      >
-                        <View style={styles.filterChipContent}>
-                          <Text
-                            style={[
-                              styles.filterChipText,
-                              moreActive && styles.filterChipTextActive,
-                            ]}
-                          >
-                            {moreLabel}
-                          </Text>
-                          <Ionicons
-                            name={moreMenuOpen ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color={moreActive ? '#fff' : '#555'}
-                          />
-                        </View>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-                {moreMenuOpen && moreOptions.length > 0 ? (
-                  <View style={styles.moreMenu}>
-                    {moreOptions.map((option) => {
-                      const active = option.id === selectedChain.id;
-                      return (
-                        <Pressable
-                          key={option.id}
-                          onPress={() => selectChain(option.id)}
-                          style={[styles.moreChip, active && styles.filterChipActive]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
                         >
                           <Text
                             style={[styles.filterChipText, active && styles.filterChipTextActive]}
@@ -340,7 +323,74 @@ export default function DealsScreen() {
       {selectedDeal && (
         <PriceHistoryModal deal={selectedDeal} onClose={() => setSelectedDeal(null)} />
       )}
+      {chainSheetOpen && (
+        <ChainSheet
+          options={chainOptions}
+          followed={followed}
+          onClose={() => setChainSheetOpen(false)}
+        />
+      )}
     </>
+  );
+}
+
+function ChainSheet({
+  options,
+  followed,
+  onClose,
+}: {
+  options: ChainOption[];
+  followed: string[];
+  onClose: () => void;
+}) {
+  const followedIds = useMemo(
+    () => new Set(followedOptionsFor(options, followed).map((option) => option.id)),
+    [options, followed],
+  );
+  const firstOtherIndex = options.findIndex((option) => !isFeaturedChainOption(option));
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose} />
+      <View style={styles.modalSheet}>
+        <View style={styles.modalHandle} />
+        <View style={styles.chainSheetHeader}>
+          <Text style={styles.modalTitle}>Hvilke kjeder vil du følge?</Text>
+          <Text style={styles.chainSheetCount}>{followedIds.size} valgt</Text>
+        </View>
+        <ScrollView contentContainerStyle={styles.chainSheetList}>
+          {options.map((option, index) => {
+            const on = followedIds.has(option.id);
+            return (
+              <View key={option.id}>
+                {index === firstOtherIndex ? (
+                  <Text style={styles.chainSheetSection}>Andre kjeder med tilbud nå</Text>
+                ) : null}
+                <Pressable
+                  onPress={() => toggleFollowedChain(option.id).catch(() => {})}
+                  style={styles.chainSheetRow}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                >
+                  <Ionicons
+                    name={on ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={on ? '#E10A0A' : '#aaa'}
+                  />
+                  <Text style={styles.chainSheetLabel}>{option.label}</Text>
+                  <Text style={styles.chainSheetMeta}>
+                    {option.count === 0 ? 'Ingen tilbud nå' : `${option.count} tilbud`}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
+        </ScrollView>
+        <Pressable onPress={onClose} style={styles.chainSheetDone} accessibilityRole="button">
+          <Text style={styles.chainSheetDoneText}>Ferdig</Text>
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
@@ -834,7 +884,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   headerBlock: { marginBottom: 8, paddingHorizontal: 4, gap: 2 },
-  headerSub: { color: '#666' },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerSub: { flex: 1, color: '#666' },
+  chainsButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+  chainsButtonText: { fontSize: 13, fontWeight: '700', color: '#E10A0A' },
   headerMeta: { fontSize: 12, color: '#888' },
   cacheNotice: { fontSize: 12, color: '#A85C00' },
   staleNotice: { fontSize: 12, color: '#A85C00', fontWeight: '600' },
@@ -845,27 +898,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#f0f0f3',
   },
-  filterChipContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   filterChipActive: { backgroundColor: '#E10A0A' },
   filterChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
   filterChipTextActive: { color: '#fff' },
-  moreMenu: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e4e4e7',
-  },
-  moreChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#f0f0f3',
-  },
   errorBox: { backgroundColor: '#FFE5E5', padding: 12, borderRadius: 8, marginBottom: 8 },
   errorText: { color: '#C00' },
   empty: { color: '#999', textAlign: 'center', padding: 32 },
@@ -979,6 +1014,42 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   modalContent: { padding: 20, gap: 6 },
+  chainSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  chainSheetCount: { fontSize: 13, color: '#888' },
+  chainSheetList: { paddingHorizontal: 20, paddingBottom: 8 },
+  chainSheetSection: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#888',
+    marginTop: 16,
+    marginBottom: 2,
+  },
+  chainSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  chainSheetLabel: { flex: 1, fontSize: 15, color: '#222' },
+  chainSheetMeta: { fontSize: 12, color: '#999' },
+  chainSheetDone: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#E10A0A',
+    alignItems: 'center',
+  },
+  chainSheetDoneText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   modalTitle: { fontSize: 17, fontWeight: '700', color: '#111' },
   modalBrand: { fontSize: 13, color: '#888' },
   modalPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
