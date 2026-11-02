@@ -16,6 +16,8 @@ function haptic(style: Haptics.ImpactFeedbackStyle | 'selection') {
 }
 
 const STORAGE_KEY = 'cart.v1';
+// Rådata vi ikke klarte å lese, tatt vare på før handlelisten lagres på nytt.
+const BACKUP_KEY = 'cart.v1.backup';
 
 let cache: CartItem[] | null = null;
 const listeners = new Set<() => void>();
@@ -54,21 +56,44 @@ function tidyTjekName(item: Pick<CartItem, 'name' | 'ean'>): string {
   return item.name.replace(/ · #\S{1,4}$/, '');
 }
 
+type StoredCartItem = Parameters<typeof normalizeCartItem>[0];
+
+function isStoredCartItem(value: unknown): value is StoredCartItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.name === 'string' &&
+    (item.ean == null || typeof item.ean === 'string') &&
+    (item.price == null || typeof item.price === 'number') &&
+    (item.quantity == null || typeof item.quantity === 'number')
+  );
+}
+
+// Lagrede data som ikke kan leses (avbrutt skriving, gammelt format) skal ikke
+// stenge handlelisten. Gyldige varer beholdes, og rådataene legges i en backup
+// før neste lagring overskriver dem.
+async function parseStoredCart(raw: string): Promise<CartItem[]> {
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // behandles som uleselig nedenfor
+  }
+  const entries: unknown[] = Array.isArray(parsed) ? parsed : [];
+  const valid = entries.filter(isStoredCartItem);
+  if (!Array.isArray(parsed) || valid.length < entries.length) {
+    await AsyncStorage.setItem(BACKUP_KEY, raw).catch(() => {});
+  }
+  return valid.map(normalizeCartItem);
+}
+
+// Feiler selve lesingen, caches ingenting, så en senere lagring ikke kan
+// overskrive handlelisten med en tom liste.
 async function loadFromStorage(): Promise<CartItem[]> {
   if (cache !== null) return cache;
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
-  cache = raw
-    ? (
-        JSON.parse(raw) as Array<
-          | CartItem
-          | (Omit<CartItem, 'quantity' | 'image_url'> & {
-              quantity?: number;
-              image_url?: string | null;
-              campaign_text?: string | null;
-            })
-        >
-      ).map(normalizeCartItem)
-    : [];
+  cache = raw ? await parseStoredCart(raw) : [];
   return cache;
 }
 
@@ -213,8 +238,12 @@ export function useCart() {
       const next = await hydrateCartProductData(await loadFromStorage());
       setItems([...next]);
     } catch {
-      const fallback = await loadFromStorage();
-      setItems([...fallback]);
+      // Hydreringen feilet: vis varene uten ferske katalogdata. Feiler også
+      // lesingen, beholder vi det som vises, og neste sync prøver på nytt.
+      await loadFromStorage().then(
+        (fallback) => setItems([...fallback]),
+        () => {},
+      );
     } finally {
       setLoading(false);
     }
