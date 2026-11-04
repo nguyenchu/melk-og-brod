@@ -40,7 +40,11 @@ server {
     }
 
     # Expo static export: /cart → cart.html
+    # HTML-en peker på bundelen med hash i navnet. Uten no-cache gjetter
+    # nettleseren en levetid ut fra Last-Modified og kan vise en gammel
+    # versjon lenge etter en deploy.
     location / {
+        add_header Cache-Control "no-cache";
         try_files $uri $uri.html $uri/ =404;
     }
     error_page 404 /+not-found.html;
