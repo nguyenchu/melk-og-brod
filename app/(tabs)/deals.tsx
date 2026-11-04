@@ -1,3 +1,5 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { selectSuperDeals } from '@/lib/super-deals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -6,6 +8,7 @@ import {
   Alert,
   FlatList,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -44,6 +47,23 @@ import type { MenyProduct, PricePoint } from '@/lib/types';
 const CHAIN_FILTER_KEY = 'deals.chainFilter.v1';
 const DEALS_SCREEN_LIMIT = 5000;
 const TABLET_BREAKPOINT = 760;
+const NATIVE_GRID_MAX_WIDTH = 960;
+const GRID_PADDING = 12;
+const GRID_GAP = 8;
+const WEB_MIN_CARD_WIDTH = 240;
+const WEB_SCROLLBAR_SPACE = 16;
+
+function useDealsGrid() {
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+  const gridWidth = isWeb ? width - WEB_SCROLLBAR_SPACE : Math.min(width, NATIVE_GRID_MAX_WIDTH);
+  const contentWidth = gridWidth - 2 * GRID_PADDING;
+  const baseColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
+  const webColumns = Math.floor((contentWidth + GRID_GAP) / (WEB_MIN_CARD_WIDTH + GRID_GAP));
+  const numColumns = isWeb ? Math.max(baseColumns, webColumns) : baseColumns;
+  const gridCardWidth = (contentWidth - GRID_GAP * (numColumns - 1)) / numColumns;
+  return { numColumns, gridCardWidth };
+}
 
 // Datakilden regenereres nattlig av kassal-sync. Er den eldre enn dette, har
 // syncen stoppet, og prisene kan ha endret seg for lengst – da sier vi det
@@ -117,10 +137,11 @@ function shouldShowBrand(name: string, brand: string | null | undefined) {
 }
 
 export default function DealsScreen() {
-  const { width } = useWindowDimensions();
-  const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
-  const gridCardWidth =
-    (Math.min(width, 960) - 24 - 8 * (numColumns - 1)) / numColumns;
+  const { superDeals } = useLocalSearchParams<{ superDeals?: string }>();
+  const router = useRouter();
+  const showSuperDeals = superDeals === '1';
+  const [superDealRows, setSuperDealRows] = useState<MenyProduct[]>([]);
+  const { numColumns, gridCardWidth } = useDealsGrid();
   const [deals, setDeals] = useState<MenyProduct[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +212,7 @@ export default function DealsScreen() {
   const showCatalog = useCallback((catalog: MenyProduct[]) => {
     if (catalog === shownCatalog.current) return null;
     shownCatalog.current = catalog;
+    setSuperDealRows(selectSuperDeals(catalog).map(({ product }) => product));
     const rows = selectTopDeals(catalog, 5, DEALS_SCREEN_LIMIT);
     setDeals(rows);
     setFromCache(false);
@@ -265,10 +287,10 @@ export default function DealsScreen() {
     <>
       <FlatList
         key={`deals-${numColumns}`}
-        data={filteredDeals}
+        data={showSuperDeals ? selectSuperDeals(superDealRows).map(({ product }) => product) : filteredDeals}
         numColumns={numColumns}
         columnWrapperStyle={styles.gridRow}
-        keyExtractor={(d) => d.ean}
+        keyExtractor={(d) => JSON.stringify([d.ean, d.chain, d.valid_from, d.valid_until])}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         stickyHeaderIndices={[0]}
@@ -282,6 +304,11 @@ export default function DealsScreen() {
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{error}</Text>
               </View>
+            ) : showSuperDeals ? (
+              <Pressable style={styles.searchBar} onPress={() => router.setParams({ superDeals: '0' })}>
+                <Ionicons name="chevron-back" size={18} color="#888" />
+                <Text>Kjempetilbud · Vis alle tilbud</Text>
+              </Pressable>
             ) : (
               <>
                 <View style={styles.searchBar}>
@@ -366,7 +393,7 @@ export default function DealsScreen() {
             )}
           </View>
         }
-        ListEmptyComponent={!error ? <Text style={styles.empty}>{listEmptyMessage}</Text> : null}
+        ListEmptyComponent={!error ? <Text style={styles.empty}>{showSuperDeals ? 'Ingen aktive kjempetilbud akkurat nå.' : listEmptyMessage}</Text> : null}
         renderItem={renderItem}
       />
       {selectedDeal && (
@@ -444,10 +471,7 @@ function ChainSheet({
 }
 
 function DealsSkeleton() {
-  const { width } = useWindowDimensions();
-  const numColumns = width >= TABLET_BREAKPOINT ? 3 : 2;
-  const gridCardWidth =
-    (Math.min(width, 960) - 24 - 8 * (numColumns - 1)) / numColumns;
+  const { numColumns, gridCardWidth } = useDealsGrid();
 
   return (
     <View style={styles.skeletonScreen}>
@@ -989,8 +1013,14 @@ const styles = StyleSheet.create({
   skelLineWide: { width: '80%', height: 14, marginBottom: 6 },
   skelLineNarrow: { width: '45%', height: 12 },
   // Sentrert innhold holder kortene lesbare på nettbrett og nett.
-  list: { padding: 12, gap: 8, width: '100%', maxWidth: 960, alignSelf: 'center' },
-  gridRow: { flexDirection: 'row', gap: 8 },
+  list: {
+    padding: GRID_PADDING,
+    gap: GRID_GAP,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? undefined : NATIVE_GRID_MAX_WIDTH,
+    alignSelf: 'center',
+  },
+  gridRow: { flexDirection: 'row', gap: GRID_GAP },
   stickyHeader: {
     backgroundColor: '#f5f5f7',
     paddingBottom: 8,

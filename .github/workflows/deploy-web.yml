@@ -12,6 +12,7 @@ on:
       - 'hooks/**'
       - 'lib/**'
       - 'assets/**'
+      - 'public/**'
       - 'app.json'
       - 'package.json'
       - 'package-lock.json'

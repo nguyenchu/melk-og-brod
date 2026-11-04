@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Matkupp's published catalog for a new push alert
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/15
+Unit=matkupp-push-send.service
+
+[Install]
+WantedBy=timers.target

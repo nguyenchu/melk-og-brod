@@ -23,6 +23,16 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    location = /api/push/subscription {
+        client_max_body_size 1k;
+        proxy_pass http://127.0.0.1:8734;
+    }
+
+    location = /api/push/web {
+        client_max_body_size 2k;
+        proxy_pass http://127.0.0.1:8734;
+    }
+
     # Filnavnene har innholdshash, så de kan caches for alltid.
     location /_expo/ {
         add_header Cache-Control "public, max-age=31536000, immutable";

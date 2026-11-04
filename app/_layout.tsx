@@ -1,7 +1,8 @@
 import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { supportsSuperDealPush } from '@/lib/super-deal-notifications';
 import 'react-native-reanimated';
 import { StyleSheet, Text, View } from 'react-native';
 import { Onboarding, useOnboarding } from '@/components/onboarding';
@@ -32,6 +33,28 @@ const errorStyles = StyleSheet.create({
 
 export default function RootLayout() {
   const { needsOnboarding, markDone } = useOnboarding();
+
+  const router = useRouter();
+  useEffect(() => {
+    if (!supportsSuperDealPush) return;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    import('expo-notifications').then((notifications) => {
+      if (cancelled) return;
+      const open = (response: ReturnType<typeof notifications.getLastNotificationResponse>) => {
+        if (response?.notification.request.content.data.kind !== 'super-deals') return;
+        notifications.clearLastNotificationResponse();
+        router.navigate({ pathname: '/deals', params: { superDeals: '1' } });
+      };
+      const subscription = notifications.addNotificationResponseReceivedListener(open);
+      unsubscribe = () => subscription.remove();
+      open(notifications.getLastNotificationResponse());
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [router]);
 
   return (
     <ErrorBoundary>
