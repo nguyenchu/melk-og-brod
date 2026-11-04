@@ -1,0 +1,12 @@
+[Unit]
+Description=Send this week's Matkupp notification
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=matkupp-push
+EnvironmentFile=-/etc/matkupp-push.env
+StateDirectory=matkupp-push
+WorkingDirectory=/var/lib/matkupp-push
+ExecStart=/usr/bin/node /opt/matkupp/scripts/super-deal-push.mts send /var/www/html/matkupp/products.json

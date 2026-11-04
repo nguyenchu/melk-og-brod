@@ -3,8 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import {
+  isSuperDealPushEnabled,
+  setSuperDealPushEnabled,
+  supportsSuperDealPush,
+} from '@/lib/super-deal-notifications';
+
+import { prepareWebPush } from '@/lib/super-deal-web-push';
 
 const PRIVACY_URL = 'https://nguyenchu.com/privacy/';
 const ONBOARDING_KEY = 'onboarding.v1.completed';
@@ -12,6 +20,42 @@ const ONBOARDING_KEY = 'onboarding.v1.completed';
 export default function SettingsScreen() {
   const router = useRouter();
   const [resetting, setResetting] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState<boolean | null>(null);
+  const [webPush, setWebPush] = useState<Awaited<ReturnType<typeof prepareWebPush>>>(null);
+  const [savingPush, setSavingPush] = useState(false);
+
+  useEffect(() => {
+    if (supportsSuperDealPush) {
+      isSuperDealPushEnabled().then(setPushEnabled).catch(() => setPushEnabled(false));
+      return;
+    }
+    let mounted = true;
+    prepareWebPush().then((push) => {
+      if (!mounted || !push) return;
+      setWebPush(push);
+      setPushEnabled(push.enabled);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
+  async function togglePush() {
+    if (savingPush || pushEnabled === null) return;
+    setSavingPush(true);
+    try {
+      if (webPush) {
+        await webPush.setEnabled(!pushEnabled);
+        setPushEnabled(!pushEnabled);
+      } else {
+        await setSuperDealPushEnabled(!pushEnabled);
+      }
+    } catch (error) {
+      Alert.alert('Kjempetilbud', error instanceof Error ? error.message : 'Prøv igjen.');
+    } finally {
+      if (!webPush) await isSuperDealPushEnabled().then(setPushEnabled).catch(() => {});
+      setSavingPush(false);
+    }
+  }
+
   const version = Constants.expoConfig?.version ?? '—';
   const buildNumber =
     Constants.nativeBuildVersion ??
@@ -39,6 +83,19 @@ export default function SettingsScreen() {
         <Row label="Versjon" value={`${version} (${buildNumber})`} />
         <Row label="Datakilde" value="Kassal.app (alle kjeder)" />
       </Section>
+
+      {(supportsSuperDealPush || webPush) && (
+        <Section title="Varsler">
+          <ActionRow
+            icon="notifications-outline"
+            label={savingPush || pushEnabled === null ? 'Vent litt…' : pushEnabled ? 'Slå av kjempetilbud' : 'Varsle om kjempetilbud'}
+            onPress={togglePush}
+          />
+          <Hint>
+            Maks ett varsel per uke. Hvis du slår på varsler, lagrer vi en varslings-ID for enheten.
+          </Hint>
+        </Section>
+      )}
 
       <Section title="Personvern">
         <ActionRow

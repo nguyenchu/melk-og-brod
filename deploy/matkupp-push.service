@@ -1,0 +1,14 @@
+[Unit]
+Description=Matkupp push subscription endpoint
+After=network.target
+
+[Service]
+User=matkupp-push
+EnvironmentFile=-/etc/matkupp-push.env
+StateDirectory=matkupp-push
+WorkingDirectory=/var/lib/matkupp-push
+ExecStart=/usr/bin/node /opt/matkupp/scripts/super-deal-push.mts listen
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

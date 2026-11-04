@@ -79,3 +79,10 @@ jobs:
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
           rsync -avz scripts/kassal-sync/out/products.json \
             "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/products.json"
+
+      - name: Send eventuelt kjempetilbud
+        if: vars.MATKUPP_PUSH_ENABLED == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: ssh "$DEPLOY_USER@$DEPLOY_HOST" sudo -n /usr/bin/systemctl start matkupp-push-send.service
