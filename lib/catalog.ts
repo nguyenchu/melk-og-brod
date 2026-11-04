@@ -4,7 +4,15 @@ import type { MenyProduct } from './types';
 // Statisk katalog matet av Kassal-syncen (scripts/kassal-sync → products.json),
 // servert som en vanlig fil. Appen henter den én gang, cacher den, og rangerer/
 // filtrerer klient-side. Ingen database, ingen API-token i appen.
-const DEFAULT_DATA_URL = 'https://nguyenchu.com/matkupp/products.json';
+//
+// Web henter fra sin egen opprinnelse (nginx på matkupp.nguyenchu.com peker
+// /products.json til samme fil). nguyenchu.com sender ingen CORS-header, så
+// den fulle adressen blokkeres i nettleseren. Derfor er dette standarden på
+// web, ikke bare noe deploy-web.yml setter: et bygg uten miljøvariabelen
+// skal fortsatt virke. EXPO_OS settes inn av Expo ved bygging (som i
+// components/haptic-tab.tsx), og lar lib/ testes uten react-native.
+const DEFAULT_DATA_URL =
+  process.env.EXPO_OS === 'web' ? '/products.json' : 'https://nguyenchu.com/matkupp/products.json';
 const DATA_URL = process.env.EXPO_PUBLIC_DATA_URL || DEFAULT_DATA_URL;
 const CACHE_KEY = 'catalog.v5';
 const TTL_MS = 6 * 60 * 60 * 1000; // hent på nytt hvis cachen er eldre enn 6 t
