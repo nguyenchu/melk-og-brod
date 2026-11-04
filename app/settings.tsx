@@ -118,7 +118,11 @@ export default function SettingsScreen() {
         />
       </Section>
 
-      <Pressable style={styles.closeBtn} onPress={() => router.back()}>
+      {/* Åpnes siden direkte (en lenke eller en oppdatering på web), finnes
+          ingen skjerm å gå tilbake til, og back() gjør ingenting. */}
+      <Pressable
+        style={styles.closeBtn}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/deals'))}>
         <Text style={styles.closeBtnText}>Lukk</Text>
       </Pressable>
     </ScrollView>
