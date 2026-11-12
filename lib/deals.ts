@@ -458,6 +458,12 @@ export async function fetchDiscontinuedEans(eans: string[]): Promise<Set<string>
   return new Set(unique.filter((ean) => !present.has(ean)));
 }
 
+export async function findProductByEan(ean: string): Promise<MenyProduct | null> {
+  if (!ean) return null;
+  const catalog = await getCatalog();
+  return catalog.find((p) => p.ean === ean) ?? null;
+}
+
 // Hold i sync med DEFAULT_EXCLUDED i scripts/kassal-sync/sync.ts. Dette er
 // sikkerhetsnettet som filtrerer bort ikke-fysiske/ikke-dagligvare-kjeder også
 // når den serverte products.json er eldre enn ekskluderingslista (f.eks. Oda
