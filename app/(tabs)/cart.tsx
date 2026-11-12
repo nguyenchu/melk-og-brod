@@ -22,7 +22,8 @@ import {
   isLikelyCampaignText,
   multibuyLineTotal,
 } from '@/lib/campaigns';
-import { fetchDiscontinuedEans, searchProducts } from '@/lib/deals';
+import { PriceHistoryModal } from '@/components/price-history-modal';
+import { fetchDiscontinuedEans, findProductByEan, searchProducts } from '@/lib/deals';
 import { toggleFavorite, useFavorites } from '@/lib/favorites';
 import { hasDataConfig } from '@/lib/catalog';
 import { pricePresentation } from '@/lib/pricing';
@@ -694,6 +695,17 @@ const CartRow = memo(function CartRow({
   onChangeQuantity: (id: string, quantity: number) => void;
 }) {
   const [draftQuantity, setDraftQuantity] = useState<string | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<MenyProduct | null>(null);
+  const canShowHistory = !!item.ean && !discontinued;
+  async function openHistory() {
+    if (!item.ean) return;
+    try {
+      const product = await findProductByEan(item.ean);
+      if (product) setHistoryProduct(product);
+    } catch {
+      // Katalogen utilgjengelig: la raden være uten historikk.
+    }
+  }
   const value = draftQuantity ?? String(item.quantity);
   const lineTotal = getLineTotal(item);
   const presentation = pricePresentation({ ...item, price: item.price });
@@ -721,15 +733,24 @@ const CartRow = memo(function CartRow({
           color={item.checked ? '#2E8B57' : '#bbb'}
         />
       </Pressable>
-      {item.image_url ? (
-        <Image source={item.image_url} style={styles.cartThumb} contentFit="contain" />
-      ) : (
-        <View style={[styles.cartThumb, styles.cartThumbPlaceholder]}>
-          <Ionicons name="image-outline" size={18} color="#ccc" />
-        </View>
-      )}
+      <Pressable
+        onPress={openHistory}
+        disabled={!canShowHistory}
+        accessibilityRole={canShowHistory ? 'button' : undefined}
+        accessibilityLabel={canShowHistory ? `Vis prishistorikk for ${item.name}` : undefined}
+      >
+        {item.image_url ? (
+          <Image source={item.image_url} style={styles.cartThumb} contentFit="contain" />
+        ) : (
+          <View style={[styles.cartThumb, styles.cartThumbPlaceholder]}>
+            <Ionicons name="image-outline" size={18} color="#ccc" />
+          </View>
+        )}
+      </Pressable>
       <View style={{ flex: 1 }}>
-        <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>{item.name}</Text>
+        <Pressable onPress={openHistory} disabled={!canShowHistory}>
+          <Text style={[styles.cartName, item.checked && styles.cartNameDone]}>{item.name}</Text>
+        </Pressable>
         {discontinued ? (
           <View style={styles.discontinuedBadge}>
             <Ionicons name="alert-circle" size={12} color="#fff" />
@@ -821,6 +842,9 @@ const CartRow = memo(function CartRow({
           <CampaignBadge text={item.campaign_text!} />
         ) : null}
       </View>
+      {historyProduct ? (
+        <PriceHistoryModal deal={historyProduct} onClose={() => setHistoryProduct(null)} />
+      ) : null}
     </View>
   );
 });
