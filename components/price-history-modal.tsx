@@ -1,3 +1,5 @@
+import { Ionicons } from '@expo/vector-icons';
+import { openBrowserAsync } from 'expo-web-browser';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 import { isUpcomingOffer } from '@/lib/deals';
@@ -41,6 +43,19 @@ export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClos
     measure?.loose && measure.unit === 'kg' && measure.amount > 0 ? 1 / measure.amount : 1;
   const history = (deal.price_history ?? []).map((p) => ({ ...p, price: p.price * scale }));
   const stores = (deal.stores ?? []).filter((s) => s.price != null);
+  const usualPrice =
+    deal.median_30d != null && deal.median_30d !== deal.current_price
+      ? pricePresentation({
+          name: deal.name,
+          ean: deal.ean,
+          price: deal.median_30d,
+          price_measure: deal.price_measure,
+          unit_price: null,
+        }).primary
+      : null;
+  // Kun https-lenker åpnes, så en ugyldig katalogverdi aldri blir en lenke.
+  const vendorUrl =
+    deal.vendor_url && /^https:\/\//i.test(deal.vendor_url) ? deal.vendor_url : null;
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose} />
@@ -69,6 +84,22 @@ export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClos
           </View>
           {presentation.secondary ? (
             <Text style={styles.unitPrice}>{presentation.secondary}</Text>
+          ) : null}
+          {usualPrice ? (
+            <Text style={styles.unitPrice}>
+              {deal.price_source === 'tjek' ? 'Før' : 'Vanligvis'} {usualPrice}
+            </Text>
+          ) : null}
+          {vendorUrl ? (
+            <Pressable
+              style={styles.vendorLink}
+              onPress={() => openBrowserAsync(vendorUrl).catch(() => {})}
+              accessibilityRole="link"
+              accessibilityLabel={`Åpne ${deal.name} hos ${deal.chain ?? 'butikken'}`}
+            >
+              <Ionicons name="open-outline" size={14} color="#005B99" />
+              <Text style={styles.vendorLinkText}>Åpne hos {deal.chain ?? 'butikken'}</Text>
+            </Pressable>
           ) : null}
           {stores.length > 0 ? (
             <View style={styles.storeBlock}>
@@ -336,5 +367,13 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
   },
   unitPrice: { fontSize: 12, color: '#666', marginTop: 1 },
+  vendorLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  vendorLinkText: { fontSize: 13, color: '#005B99', fontWeight: '600' },
   validUntilModal: { fontSize: 13, color: '#005B99', fontWeight: '600', marginTop: 16 },
 });
