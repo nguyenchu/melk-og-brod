@@ -205,6 +205,16 @@ function PriceChart({
     const match = d.match(/^\d{4}-(\d{2})-(\d{2})/);
     return match ? `${match[2]}.${match[1]}` : '';
   };
+  // Tittel etter tidsrommet grafen dekker, ikke antall punkter: en flat serie
+  // er slått sammen til to punkter, men dekker like mange dager.
+  const spanDays = Math.round(
+    (new Date(points[points.length - 1].date).getTime() - new Date(points[0].date).getTime()) /
+      86_400_000,
+  );
+  const chartLabel =
+    Number.isFinite(spanDays) && spanDays >= 1
+      ? `Prishistorikk (siste ${spanDays} dager)`
+      : `Prishistorikk (siste ${points.length} målinger)`;
   const dateAt = (i: number) => (points[i]?.date ? fmtDate(points[i].date) : '');
   const yTicks = niceTicks(minP, maxP, 4);
   const xTickIdxs =
@@ -221,7 +231,7 @@ function PriceChart({
 
   return (
     <View style={styles.chartWrap}>
-      <Text style={styles.chartLabel}>Prishistorikk (siste {points.length} målinger)</Text>
+      <Text style={styles.chartLabel}>{chartLabel}</Text>
       <Svg width={W} height={H}>
         {yTicks.map((tick) => {
           const y = toY(tick);
@@ -262,7 +272,7 @@ function PriceChart({
             fill="#888"
             textAnchor="end"
           >
-            {tick.toFixed(tick < 10 ? 1 : 0)}
+            {tick.toFixed(tick < 10 || range < 5 ? 1 : 0)}
           </SvgText>
         ))}
         {xTickIdxs.map((i) => (
