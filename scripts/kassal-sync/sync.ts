@@ -26,6 +26,7 @@ import {
   fetchNorwegianCatalogs,
   type TjekOffer,
 } from './tjek.js';
+import { compactHistory } from './history.js';
 import { offerWindow, parseTjekDate } from './weekdays.js';
 
 const OUT_DIR = process.env.OUT_DIR ?? './out'; // hvor products.json skrives
@@ -45,7 +46,7 @@ const MAX_DROP_PCT = Number(process.env.MAX_DROP_PCT ?? 85); // kutt urealistisk
 // Kassal har sluttet å oppdatere kjeden (Coop/KIWI/REMA = frosset på ~2023-priser).
 // Kassal har innimellom hull på opptil ~9 dager, derav 10.
 const MAX_PRICE_AGE_DAYS = Number(process.env.MAX_PRICE_AGE_DAYS ?? 10);
-const HISTORY_KEEP = 20; // antall historikkpunkter vi lagrer (holder JSON-fila liten)
+const HISTORY_KEEP = 20; // maks antall dager med historikk vi lagrer (holder JSON-fila liten)
 
 // Kjeder vi IKKE tar med – vi viser kun rene fysiske MATBUTIKK-kjeder.
 // Utelater (a) rene nettbutikker/priskilder som ikke er i Kassals /physical-stores
@@ -244,9 +245,7 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
   if (current_price < 0.5 || current_price > 10_000) return null;
 
   const meta = bestProductMeta(rows);
-  const history = historyPoints(headline.row.price_history, sinceMs)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-HISTORY_KEEP);
+  const history = compactHistory(historyPoints(headline.row.price_history, sinceMs), HISTORY_KEEP);
 
   return {
     ean,
@@ -271,9 +270,9 @@ function buildRow(ean: string, rows: KassalSearchProduct[]): Row | null {
       unit_price: o.unit_price,
       drop_pct: o.drop_pct,
     })),
-    // Prishistorikk lagres bare for tilbud (kun de viser graf), så fila holdes liten
-    // nok til at appen kan cache den (AsyncStorage/localStorage ~5–6 MB).
-    price_history: headline.offer.drop_pct != null && history.length ? history : null,
+    // Alle varer får historikk, men komprimert (se compactHistory) så fila holdes
+    // liten nok til at appen kan cache den (AsyncStorage/localStorage ~5–6 MB).
+    price_history: history,
     computed_at: new Date().toISOString(),
     cheapest_price: cheapest.price,
     cheapest_chain: cheapest.chain,
