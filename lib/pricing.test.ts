@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { measureFromMetadata } from './price-measure';
-import { formatUnitPriceLabel, pricePresentation } from './pricing';
+import { formatUnitPriceLabel, isApproximateWeight, pricePresentation } from './pricing';
 
 const potato = {
   name: 'Poteter løsvekt',
@@ -96,5 +96,36 @@ describe('price presentation', () => {
     };
     expect(formatUnitPriceLabel(product)).toBe('16.50 kr/l');
     expect(pricePresentation(product).primary).toBe('99.00 kr');
+  });
+});
+
+describe('isApproximateWeight', () => {
+  it('does not match "ca" inside another word', () => {
+    for (const name of [
+      'Rustica Pizza 4-cheeses 555g Dr.oetker',
+      'Pizza Rustica 565 g',
+      'Coca Cola 0,33l flaske',
+      'Iskaffe Mocca 330ml Tine',
+    ]) {
+      expect(isApproximateWeight(name, '4001724010784')).toBe(false);
+    }
+  });
+  it('still matches "ca" as its own word', () => {
+    for (const name of [
+      'Ananas ca 1 stk',
+      'Kjøttdeig ca. 400g',
+      'Ost ca 500 g',
+      'CA 1,2 kg skinke',
+    ]) {
+      expect(isApproximateWeight(name, '7038010000010')).toBe(true);
+    }
+  });
+  it('treats weighed PLU barcodes starting with 2 as approximate', () => {
+    expect(isApproximateWeight('Bacon', '2012345000001')).toBe(true);
+  });
+  it('gives Rustica an exact price and unit price', () => {
+    expect(
+      pricePresentation({ name: 'Pizza Rustica 565 g', ean: '4001724010784', price: 59.9 }),
+    ).toMatchObject({ primary: '59.90 kr', secondary: '106.02 kr/kg', approximate: false });
   });
 });

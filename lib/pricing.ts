@@ -45,13 +45,17 @@ function parseMultipackAmount(normalized: string, approximate: boolean): ParsedU
   return null;
 }
 
+// «ca» må stå som eget ord. Uten dette traff «ca » midt i andre ord, f.eks.
+// «Rustica Pizza», «Coca Cola» og «Mocca», og ga falsk «ca.»-pris.
+const CA_WEIGHT = /(?<![a-zæøå])ca[\s.]*\d+[,.]?\d*\s*(?:kg|g)\b/;
+const CA_PREFIX = /(?<![a-zæøå])ca[\s.]/;
+
 export function isApproximateWeight(name: string, ean?: string | null) {
   const normalizedName = normalizeText(name);
   return (
     Boolean(ean?.startsWith('2')) ||
-    /ca[\s.]*\d+[,.]?\d*\s*kg\b/.test(normalizedName) ||
-    /ca[\s.]*\d+[,.]?\d*\s*g\b/.test(normalizedName) ||
-    normalizedName.includes('ca ')
+    CA_WEIGHT.test(normalizedName) ||
+    CA_PREFIX.test(normalizedName)
   );
 }
 
