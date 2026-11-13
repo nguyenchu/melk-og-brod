@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { openBrowserAsync } from 'expo-web-browser';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
@@ -171,6 +172,12 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   return ticks;
 }
 
+// «nå»-merket på grafen: én desimal, uten overflødig «.0», slik at 19,9 ikke
+// rundes til 20 og 40,0 ikke blir «40.0».
+function formatNowPrice(price: number) {
+  return String(Math.round(price * 10) / 10);
+}
+
 function PriceChart({
   points,
   currentPrice,
@@ -180,7 +187,10 @@ function PriceChart({
   currentPrice: number | null;
   unit?: string;
 }) {
-  const W = 300;
+  // Bredden følger beholderen (målt med onLayout), innenfor et fornuftig spenn:
+  // 300 før første måling, og aldri bredere enn at grafen blir en flat stripe.
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const W = Math.min(Math.max(measuredWidth ?? 300, 240), 520);
   const H = 150;
   const PAD = { top: 12, bottom: 28, left: 42, right: 10 };
   const chartW = W - PAD.left - PAD.right;
@@ -230,7 +240,10 @@ function PriceChart({
           ];
 
   return (
-    <View style={styles.chartWrap}>
+    <View
+      style={styles.chartWrap}
+      onLayout={(e) => setMeasuredWidth(Math.floor(e.nativeEvent.layout.width))}
+    >
       <Text style={styles.chartLabel}>{chartLabel}</Text>
       <Svg width={W} height={H}>
         {yTicks.map((tick) => {
@@ -310,7 +323,7 @@ function PriceChart({
               fontWeight="700"
               textAnchor="end"
             >
-              nå {currentPrice.toFixed(currentPrice < 10 ? 1 : 0)}
+              nå {formatNowPrice(currentPrice)}
             </SvgText>
           </>
         )}
