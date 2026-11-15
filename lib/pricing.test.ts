@@ -123,6 +123,12 @@ describe('isApproximateWeight', () => {
   it('treats weighed PLU barcodes starting with 2 as approximate', () => {
     expect(isApproximateWeight('Bacon', '2012345000001')).toBe(true);
   });
+  it('does not treat short internal codes starting with 2 as weighed', () => {
+    expect(isApproximateWeight('Druer Røde 500g Beger', '20525453')).toBe(false);
+    expect(
+      pricePresentation({ name: 'Druer Røde 500g Beger', ean: '20525453', price: 29.9 }),
+    ).toMatchObject({ primary: '29.90 kr', approximate: false });
+  });
   it('gives Rustica an exact price and unit price', () => {
     expect(
       pricePresentation({ name: 'Pizza Rustica 565 g', ean: '4001724010784', price: 59.9 }),
