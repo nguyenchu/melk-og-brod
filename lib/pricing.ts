@@ -49,11 +49,15 @@ function parseMultipackAmount(normalized: string, approximate: boolean): ParsedU
 // «Rustica Pizza», «Coca Cola» og «Mocca», og ga falsk «ca.»-pris.
 const CA_WEIGHT = /(?<![a-zæøå])ca[\s.]*\d+[,.]?\d*\s*(?:kg|g)\b/;
 const CA_PREFIX = /(?<![a-zæøå])ca[\s.]/;
+// Vektmerkede varer har 13-sifret EAN som starter på 2. Kortere koder som
+// starter på 2 (f.eks. Bamas 8-sifrede «20525453» på druebegeret) er interne
+// koder for ferdigpakkede varer med fast vekt og pris.
+const WEIGHED_EAN = /^2\d{12}$/;
 
 export function isApproximateWeight(name: string, ean?: string | null) {
   const normalizedName = normalizeText(name);
   return (
-    Boolean(ean?.startsWith('2')) ||
+    WEIGHED_EAN.test(ean ?? '') ||
     CA_WEIGHT.test(normalizedName) ||
     CA_PREFIX.test(normalizedName)
   );
