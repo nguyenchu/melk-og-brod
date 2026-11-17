@@ -1,0 +1,35 @@
+# Test build for Matkupp. Install as /etc/nginx/sites-available/matkupp-test.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name matkupp-test.nguyenchu.com;
+
+    # Testmiljøet er ikke offentlig: åpent hjemmefra, ellers samme innlogging
+    # som start.nguyenchu.com. Snippeten ligger på serveren i
+    # /etc/nginx/snippets/hjemme-eller-passord.conf (deles med dagbok-test).
+    include snippets/hjemme-eller-passord.conf;
+
+    root /var/www/matkupp-test-web;
+    index index.html;
+
+    gzip_types application/json application/javascript text/css image/svg+xml;
+    gzip_min_length 1024;
+    gzip_vary on;
+
+    # Use the same public catalog as production so prices remain current.
+    location = /products.json {
+        alias /var/www/html/matkupp/products.json;
+        add_header Cache-Control "no-cache";
+    }
+
+    location /_expo/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri.html $uri/ =404;
+    }
+    error_page 404 /+not-found.html;
+}
