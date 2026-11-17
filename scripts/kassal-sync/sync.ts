@@ -313,7 +313,9 @@ async function collectRowsByEan(): Promise<Map<string, KassalSearchProduct[]>> {
 
 // ---- Tjek / eTilbudsavis: ukentlige kundeavis-tilbud for kjedene Kassal mangler ----
 
-const SKIP_TJEK = process.env.SKIP_TJEK === '1' || process.env.SKIP_TJEK === 'true';
+// Tjek har avvist bruk i Matkupp og bedt oss stanse all henting. Hold kilden
+// deaktivert uavhengig av miljøvariabler; neste sync rydder den ut av katalogen.
+const SKIP_TJEK = true;
 
 // Kun rene dagligvare-kjeder. Eksakt match holder bygg/møbel/elektro ute
 // (f.eks. «Obs» = hypermarked tas med, «Obs! Bygg» ikke). Europris er bevisst
@@ -558,7 +560,7 @@ async function main() {
       console.error(`[tjek] hopper over (feilet): ${(e as Error).message}`);
     }
   }
-  console.log(`[sync] totalt ${rows.length} rader (Kassal + Tjek)`);
+  console.log(`[sync] totalt ${rows.length} rader (Kassal)`);
 
   if (DRY_RUN) {
     console.log('[sync] DRY_RUN – hopper over filskriving');
@@ -571,3 +573,4 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
