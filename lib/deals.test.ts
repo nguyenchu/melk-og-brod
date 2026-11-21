@@ -6,6 +6,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem
 vi.mock('./catalog', () => ({}));
 
 const {
+  getDealPriceDisplay,
   isActiveDealProduct,
   isExpiredOffer,
   isUpcomingOffer,
@@ -55,6 +56,32 @@ describe('isUpcomingOffer', () => {
   it('treats offers without a start date as running', () => {
     expect(isUpcomingOffer({ valid_from: null }, NOW)).toBe(false);
     expect(isUpcomingOffer({}, NOW)).toBe(false);
+  });
+});
+
+describe('getDealPriceDisplay', () => {
+  it('shows the stated regular price now and the flyer price separately before an offer starts', () => {
+    const fridayOffer = {
+      current_price: 12.9,
+      original_price: 17.9,
+      valid_from: '2026-09-24T22:00:00.000Z',
+    };
+    expect(getDealPriceDisplay(fridayOffer, NOW)).toEqual({
+      currentPrice: 17.9,
+      upcomingPrice: 12.9,
+    });
+  });
+
+  it('does not call a historical median today’s price when no regular price is provided', () => {
+    const fridayOffer = {
+      current_price: 12.9,
+      original_price: null,
+      valid_from: '2026-09-24T22:00:00.000Z',
+    };
+    expect(getDealPriceDisplay(fridayOffer, NOW)).toEqual({
+      currentPrice: null,
+      upcomingPrice: 12.9,
+    });
   });
 });
 

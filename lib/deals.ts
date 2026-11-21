@@ -72,6 +72,19 @@ export function isUpcomingOffer(
   return Number.isFinite(from) && from > now;
 }
 
+export function getDealPriceDisplay(
+  product: Pick<MenyProduct, 'current_price' | 'original_price' | 'valid_from'>,
+  now: number = Date.now(),
+) {
+  if (!isUpcomingOffer(product, now)) {
+    return { currentPrice: product.current_price, upcomingPrice: null };
+  }
+  return {
+    currentPrice: product.original_price,
+    upcomingPrice: product.current_price,
+  };
+}
+
 // Ukestilbud (tjek) har en sluttdato. Syncen kjører bare om natta, så uten
 // denne sjekken vises gårsdagens tilbud fram til neste sync.
 export function isExpiredOffer(

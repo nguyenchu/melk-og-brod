@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import { openBrowserAsync } from 'expo-web-browser';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -66,6 +67,14 @@ export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClos
           contentContainerStyle={styles.modalContent}
           showsVerticalScrollIndicator={false}
         >
+          {deal.image_url ? (
+            <Image
+              source={deal.image_url}
+              style={styles.productImage}
+              contentFit="contain"
+              accessibilityLabel={`Bilde av ${deal.name}`}
+            />
+          ) : null}
           <Text style={styles.modalTitle} numberOfLines={2}>
             {deal.name}
           </Text>
@@ -371,7 +380,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 32,
-    maxHeight: '70%',
+    maxHeight: '85%',
+  },
+  productImage: {
+    width: '100%',
+    height: 260,
+    backgroundColor: '#fff',
+    marginBottom: 12,
   },
   modalTitle: { fontSize: 17, fontWeight: '700', color: '#111' },
   noChartText: { color: '#aaa', fontSize: 13, padding: 24, textAlign: 'center' },
