@@ -23,9 +23,17 @@ export const FEATURED_CHAIN_FILTERS: { id: string; label: string; chains: string
   { id: 'Extra', label: 'Coop Extra', chains: ['Extra', 'Coop Extra'] },
   { id: 'Joker', label: 'Joker', chains: ['Joker'] },
   { id: 'Bunnpris', label: 'Bunnpris', chains: ['Bunnpris'] },
-  { id: 'Coop Marked', label: 'Coop Marked', chains: ['Coop Marked', 'Marked'] },
   { id: 'Gigaboks', label: 'Gigaboks', chains: ['Gigaboks'] },
+  { id: 'Coop Mega', label: 'Coop Mega', chains: ['Coop Mega'] },
 ];
+
+const OTHER_CHAIN_FILTERS = [
+  { id: 'Coop Marked', label: 'Coop Marked', chains: ['Coop Marked', 'Marked'] },
+];
+const KNOWN_CHAIN_MEMBERS = new Set(
+  [...FEATURED_CHAIN_FILTERS, ...OTHER_CHAIN_FILTERS]
+    .flatMap((option) => option.chains).map(normalizeChainName),
+);
 
 export const FEATURED_CHAIN_MEMBERS = new Set(
   FEATURED_CHAIN_FILTERS.flatMap((option) => option.chains).map(normalizeChainName),
@@ -73,17 +81,47 @@ export function chainOptionsFor(deals: ChainedProduct[] | null): ChainOption[] {
     const key = normalizeChainName(deal.chain);
     if (!present.has(key)) present.set(key, deal.chain);
   }
+  const groupedOthers = OTHER_CHAIN_FILTERS.map((option) => ({
+    ...option,
+    count: countChains(option.chains, counts),
+  })).filter((option) => option.count > 0);
   const others = Array.from(present)
-    .filter(([key]) => !FEATURED_CHAIN_MEMBERS.has(key))
+    .filter(([key]) => !KNOWN_CHAIN_MEMBERS.has(key))
     .map(([key, chain]) => ({
       id: chain,
       label: chain,
       chains: [chain],
       count: counts.get(key) ?? 0,
     }))
+    .concat(groupedOthers)
     .sort(byLabel);
 
   return [...featured, ...others];
+}
+
+// Kjeder vi ikke har noen kilde til akkurat nå (Tjek er borte, og Kassal har
+// frosne priser for Coop/KIWI/REMA). Vises i en egen liste uten avkrysning, så
+// lenge ingen tilbud dukker opp for dem.
+export const CHAINS_WITHOUT_SOURCE = [
+  'Coop Prix',
+  'Coop Obs',
+  'Eurospar',
+  'Matkroken',
+  'Jacobs',
+  'Nærbutikken',
+];
+
+// Kjedene uten tilbud nå, delt i valgbare (utvalgte med 0 tilbud) og rene
+// navn vi ikke har kilde til. Brukes av «Mangler prisdata»-lista i kjedearket.
+export function missingChainsFor(options: ChainOption[]) {
+  const known = new Set(
+    options.flatMap((o) => o.chains ?? [o.id]).map(normalizeChainName),
+  );
+  const empty = options.filter((o) => o.count === 0);
+  const unsourced = CHAINS_WITHOUT_SOURCE.filter(
+    (name) => !known.has(normalizeChainName(name)),
+  );
+  return { empty, unsourced };
 }
 
 // Kjedene brukeren følger, i samme rekkefølge som chainOptionsFor. En fulgt

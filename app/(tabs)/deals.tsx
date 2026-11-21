@@ -22,6 +22,7 @@ import {
   ALL_CHAINS,
   allFollowedOption,
   chainOptionsFor,
+  missingChainsFor,
   findChainOption,
   followedOptionsFor,
   isFeaturedChainOption,
@@ -33,6 +34,8 @@ import { PriceHistoryModal, formatUpcomingWindow, formatValidUntil } from '@/com
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import {
   loadCachedDeals,
+  getDealPriceDisplay,
+  isUpcomingOffer,
   matchesDealSearch,
   saveCachedDeals,
   selectTopDeals,
@@ -392,7 +395,36 @@ function ChainSheet({
     () => new Set(followedOptionsFor(options, followed).map((option) => option.id)),
     [options, followed],
   );
-  const firstOtherIndex = options.findIndex((option) => !isFeaturedChainOption(option));
+  const available = options.filter((option) => option.count > 0);
+  const { empty, unsourced } = missingChainsFor(options);
+  const firstOtherIndex = available.findIndex((option) => !isFeaturedChainOption(option));
+
+  const renderRow = (option: ChainOption, firstOther: boolean) => {
+    const on = followedIds.has(option.id);
+    return (
+      <View key={option.id}>
+        {firstOther ? (
+          <Text style={styles.chainSheetSection}>Andre kjeder med tilbud nå</Text>
+        ) : null}
+        <Pressable
+          onPress={() => toggleFollowedChain(option.id).catch(() => {})}
+          style={styles.chainSheetRow}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: on }}
+        >
+          <Ionicons
+            name={on ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={on ? '#E10A0A' : '#aaa'}
+          />
+          <Text style={styles.chainSheetLabel}>{option.label}</Text>
+          <Text style={styles.chainSheetMeta}>
+            {option.count === 0 ? 'Ingen tilbud nå' : `${option.count} tilbud`}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  };
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -404,32 +436,20 @@ function ChainSheet({
           <Text style={styles.chainSheetCount}>{followedIds.size} valgt</Text>
         </View>
         <ScrollView contentContainerStyle={styles.chainSheetList}>
-          {options.map((option, index) => {
-            const on = followedIds.has(option.id);
-            return (
-              <View key={option.id}>
-                {index === firstOtherIndex ? (
-                  <Text style={styles.chainSheetSection}>Andre kjeder med tilbud nå</Text>
-                ) : null}
-                <Pressable
-                  onPress={() => toggleFollowedChain(option.id).catch(() => {})}
-                  style={styles.chainSheetRow}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                >
-                  <Ionicons
-                    name={on ? 'checkbox' : 'square-outline'}
-                    size={22}
-                    color={on ? '#E10A0A' : '#aaa'}
-                  />
-                  <Text style={styles.chainSheetLabel}>{option.label}</Text>
-                  <Text style={styles.chainSheetMeta}>
-                    {option.count === 0 ? 'Ingen tilbud nå' : `${option.count} tilbud`}
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          })}
+          {available.map((option, index) => renderRow(option, index === firstOtherIndex))}
+          {empty.length + unsourced.length > 0 ? (
+            <View>
+              <Text style={styles.chainSheetSection}>Mangler prisdata for øyeblikket</Text>
+              {empty.map((option) => renderRow(option, false))}
+              {unsourced.map((name) => (
+                <View key={name} style={styles.chainSheetRow}>
+                  <Ionicons name="square-outline" size={22} color="#ddd" />
+                  <Text style={[styles.chainSheetLabel, { color: '#999' }]}>{name}</Text>
+                  <Text style={styles.chainSheetMeta}>Ingen data</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </ScrollView>
         <Pressable onPress={onClose} style={styles.chainSheetDone} accessibilityRole="button">
           <Text style={styles.chainSheetDoneText}>Ferdig</Text>
@@ -520,14 +540,19 @@ const DealRow = memo(function DealRow({
 
   const drop = item.drop_pct ?? 0;
   const isWeekly = item.price_source === 'tjek';
-  const presentation = pricePresentation({ ...item, price: item.current_price });
+  const priceDisplay = getDealPriceDisplay(item);
+  const isUpcoming = isWeekly && isUpcomingOffer(item);
+  const presentation = pricePresentation({ ...item, price: priceDisplay.currentPrice });
+  const upcomingPresentation = priceDisplay.upcomingPrice == null
+    ? null
+    : pricePresentation({ ...item, price: priceDisplay.upcomingPrice });
   const approximate = presentation.approximate;
   const currentPriceLabel = presentation.primary;
-  const beforePriceLabel = pricePresentation({
-    ...item,
-    price: item.median_30d,
-    unit_price: null,
-  }).primary;
+  const beforePriceLabel = isUpcoming ? null : pricePresentation({
+      ...item,
+      price: item.median_30d,
+      unit_price: null,
+    }).primary;
   const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
   const upcomingLabel = isWeekly ? formatUpcomingWindow(item) : null;
   const validUntilLabel = isWeekly && !upcomingLabel ? formatValidUntil(item.valid_until) : null;
@@ -691,7 +716,19 @@ const DealRow = memo(function DealRow({
           <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
         ) : null}
         {upcomingLabel ? (
-          <Text style={[styles.validUntil, styles.validUpcoming]}>{upcomingLabel}</Text>
+          <>
+            <Text style={[styles.validUntil, styles.validUpcoming]}>{upcomingLabel}</Text>
+            {upcomingPresentation?.primary ? (
+              <Text style={[styles.validUntil, styles.validUpcoming]}>
+                Tilbudspris: {upcomingPresentation.primary}
+              </Text>
+            ) : null}
+            <Text style={styles.validUntil}>
+              {priceDisplay.currentPrice == null
+                ? 'Dagens pris er ikke oppgitt'
+                : 'Pris nå basert på oppgitt ordinærpris'}
+            </Text>
+          </>
         ) : validUntilLabel ? (
           <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
         ) : null}

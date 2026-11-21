@@ -7,6 +7,7 @@ import {
   allFollowedOption,
   chainCountsFor,
   chainOptionsFor,
+  missingChainsFor,
   countChains,
   findChainOption,
   followedOptionsFor,
@@ -46,7 +47,7 @@ describe('chain name normalization', () => {
     expect(normalizeChainName('ＫＩＷＩ')).toBe('kiwi');
   });
   it('knows every featured alias as a normalized member', () => {
-    expect(FEATURED_CHAIN_MEMBERS.has('marked')).toBe(true);
+    expect(FEATURED_CHAIN_MEMBERS.has('marked')).toBe(false);
     expect(FEATURED_CHAIN_MEMBERS.has('coop extra')).toBe(true);
     expect(FEATURED_CHAIN_MEMBERS.has('spar')).toBe(false);
   });
@@ -85,11 +86,14 @@ describe('chain options', () => {
   it('lists non-featured chains with deals after the featured ones, alphabetically', () => {
     const options = chainOptionsFor(deals);
     expect(options.slice(FEATURED_CHAIN_FILTERS.length)).toEqual([
+      { id: 'Coop Marked', label: 'Coop Marked', chains: ['Coop Marked', 'Marked'], count: 2 },
       { id: 'Obs', label: 'Obs', chains: ['Obs'], count: 1 },
       { id: 'Spar', label: 'Spar', chains: ['Spar'], count: 1 },
     ]);
     expect(options.slice(0, FEATURED_CHAIN_FILTERS.length).every(isFeaturedChainOption)).toBe(true);
     expect(isFeaturedChainOption(option('Spar'))).toBe(false);
+    expect(isFeaturedChainOption(option('Coop Marked'))).toBe(false);
+    expect(DEFAULT_FOLLOWED_CHAINS).not.toContain('Coop Marked');
   });
 });
 
@@ -107,7 +111,7 @@ describe('followed chains', () => {
     expect(all).toEqual({
       id: ALL_CHAINS,
       label: 'Alle mine',
-      chains: ['Coop Marked', 'Marked', 'KIWI', 'Spar'],
+      chains: ['KIWI', 'Coop Marked', 'Marked', 'Spar'],
       count: 5,
     });
     expect(productMatchesChain(deal('Marked'), all)).toBe(true);
@@ -148,5 +152,15 @@ describe('product chain matching', () => {
     const anything = { id: 'x', label: 'x', chains: null, count: 0 };
     expect(productMatchesChain(deal(null), anything)).toBe(true);
     expect(productMatchesChain(deal('Spar'), anything)).toBe(true);
+  });
+});
+
+describe('missing chains', () => {
+  it('splits chains without deals from chains we have no source for', () => {
+    const { empty, unsourced } = missingChainsFor(chainOptionsFor(deals));
+    expect(empty.every((o) => o.count === 0)).toBe(true);
+    expect(empty.map((o) => o.id)).toContain('Gigaboks');
+    expect(unsourced).toContain('Coop Prix');
+    expect(unsourced).toContain('Coop Obs');
   });
 });
