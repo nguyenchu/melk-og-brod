@@ -24,7 +24,7 @@ export type MenyProduct = {
   current_price: number | null; // tilbudsprisen (eller billigste hvis ingen tilbud)
   median_30d: number | null; // normalpris (median) for tilbudsbutikken
   original_price: number | null;
-  price_source: 'meny' | 'median' | 'tjek' | null;
+  price_source: 'meny' | 'median' | null;
   drop_pct: number | null;
   campaign_text: string | null;
   cheapest_price: number | null; // billigste nåpris på tvers av kjeder
@@ -34,8 +34,6 @@ export type MenyProduct = {
   unit_price?: number | null;
   computed_at: string;
   price_history: PricePoint[] | null;
-  valid_from?: string | null; // kun tjek: når tilbudet starter (f.eks. «kun fredag»)
-  valid_until?: string | null; // kun tjek: ukestilbudet utløper (ISO-dato)
   // Fastpris-multibuy, f.eks. «3 for 100»: kjøp `quantity` for `price` totalt,
   // resten til `single` (vanlig enkeltpris). null = ikke multibuy.
   multibuy?: { quantity: number; price: number; single: number } | null;

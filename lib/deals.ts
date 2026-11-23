@@ -25,9 +25,7 @@ function isCachedDeal(value: unknown): value is MenyProduct {
   const deal = value as Record<string, unknown>;
   return (
     typeof deal.ean === 'string' &&
-    typeof deal.name === 'string' &&
-    (deal.valid_from == null || typeof deal.valid_from === 'string') &&
-    (deal.valid_until == null || typeof deal.valid_until === 'string')
+    typeof deal.name === 'string'
   );
 }
 
@@ -41,66 +39,17 @@ export async function loadCachedDeals(): Promise<MenyProduct[] | null> {
     return null;
   }
   if (!Array.isArray(parsed)) return null;
-  // Cachen kan være fra forrige uke (offline-fallback) – ikke vis utløpte tilbud.
-  return parsed.filter(isCachedDeal).filter((product) => !isExpiredOffer(product));
+  return parsed.filter(isCachedDeal);
 }
 
 function hasCampaignSignal(product: Pick<MenyProduct, 'campaign_text' | 'price_source'>) {
-  // 'tjek' = ukentlig kundeavis-tilbud (KIWI/REMA/Coop m.fl.); alltid et reelt
-  // tilbud selv uten oppgitt før-pris, så det teller som kampanjesignal.
-  return (
-    product.price_source === 'meny' ||
-    product.price_source === 'tjek' ||
-    isLikelyCampaignText(product.campaign_text)
-  );
-}
-
-// Tjek sender «2026-09-23T21:59:59+0000»; legg inn kolon i tidssonen så
-// strengen er gyldig ISO og parses likt i alle JS-motorer (også Hermes).
-function parseOfferDate(value: string): number {
-  return Date.parse(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
-}
-
-// Tilbud som ikke har startet ennå – f.eks. «kun fredag» vist på torsdag.
-// Syncen snevrer inn Tjeks datoer til dagene i tilbudsteksten.
-export function isUpcomingOffer(
-  product: Pick<MenyProduct, 'valid_from'>,
-  now: number = Date.now(),
-) {
-  if (!product.valid_from) return false;
-  const from = parseOfferDate(product.valid_from);
-  return Number.isFinite(from) && from > now;
-}
-
-export function getDealPriceDisplay(
-  product: Pick<MenyProduct, 'current_price' | 'original_price' | 'valid_from'>,
-  now: number = Date.now(),
-) {
-  if (!isUpcomingOffer(product, now)) {
-    return { currentPrice: product.current_price, upcomingPrice: null };
-  }
-  return {
-    currentPrice: product.original_price,
-    upcomingPrice: product.current_price,
-  };
-}
-
-// Ukestilbud (tjek) har en sluttdato. Syncen kjører bare om natta, så uten
-// denne sjekken vises gårsdagens tilbud fram til neste sync.
-export function isExpiredOffer(
-  product: Pick<MenyProduct, 'valid_until'>,
-  now: number = Date.now(),
-) {
-  if (!product.valid_until) return false;
-  const until = parseOfferDate(product.valid_until);
-  return Number.isFinite(until) && until < now;
+  return product.price_source === 'meny' || isLikelyCampaignText(product.campaign_text);
 }
 
 export function isActiveDealProduct(
-  product: Pick<MenyProduct, 'campaign_text' | 'price_source' | 'drop_pct' | 'valid_until'>,
+  product: Pick<MenyProduct, 'campaign_text' | 'price_source' | 'drop_pct'>,
   minDropPct = ACTIVE_DEAL_DROP_PCT,
 ) {
-  if (isExpiredOffer(product)) return false;
   return hasCampaignSignal(product) || (product.drop_pct ?? 0) >= minDropPct;
 }
 
@@ -416,8 +365,7 @@ function tidyDisplayName(name: string): string {
 }
 
 // Like navn i ulike kjeder skilles allerede av kjede-merket på kortet, så
-// bare like navn i samme kjede får EAN-suffiks. Tjek-rader har en syntetisk
-// id i stedet for EAN (tjek:…), som ikke sier brukeren noe – de får ingen.
+// bare like navn i samme kjede får EAN-suffiks.
 function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
   const counts = new Map<string, number>();
   const keyOf = (clean: string, product: MenyProduct) => `${product.chain ?? ''}|${clean}`;
@@ -429,7 +377,7 @@ function disambiguateDisplayNames(products: MenyProduct[]): MenyProduct[] {
   });
   return prepared.map(({ product, clean }) => {
     const collides = (counts.get(keyOf(clean, product)) ?? 0) > 1;
-    if (collides && product.ean && product.price_source !== 'tjek') {
+    if (collides && product.ean) {
       return { ...product, name: `${clean} · #${product.ean.slice(-4)}` };
     }
     if (clean !== product.name) return { ...product, name: clean };
@@ -504,13 +452,7 @@ export function selectTopDeals(
       !EXCLUDED_CHAINS.has(product.chain ?? '') && isActiveDealProduct(product, minDropPct),
   );
   const sorted = products.sort((a, b) => {
-    // Tilbud som gjelder nå før tilbud som ikke har startet (f.eks. «kun fredag»).
-    const aUpcoming = isUpcomingOffer(a) ? 1 : 0;
-    const bUpcoming = isUpcomingOffer(b) ? 1 : 0;
-    if (aUpcoming !== bUpcoming) return aUpcoming - bUpcoming;
-    // Tilbud med kvantifisert rabatt (reelt drop_pct) først, sortert på dybde –
-    // gjelder både Kassal-prisfall og tjek-tilbud med før-pris. Deretter tjek-
-    // tilbud uten oppgitt %-rabatt, så de ikke fortrenger de tallfestede tilbudene.
+    // Tilbud med kvantifisert rabatt (reelt drop_pct) først, sortert på dybde.
     const aHasDrop = (a.drop_pct ?? 0) > 0 ? 1 : 0;
     const bHasDrop = (b.drop_pct ?? 0) > 0 ? 1 : 0;
     if (bHasDrop !== aHasDrop) return bHasDrop - aHasDrop;

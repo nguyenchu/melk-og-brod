@@ -6,84 +6,11 @@ vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem
 vi.mock('./catalog', () => ({}));
 
 const {
-  getDealPriceDisplay,
   isActiveDealProduct,
-  isExpiredOffer,
-  isUpcomingOffer,
   loadCachedDeals,
   matchesDealSearch,
   selectTopDeals,
 } = await import('./deals');
-
-const NOW = Date.parse('2026-09-24T08:00:00+02:00');
-
-describe('isExpiredOffer', () => {
-  it('treats a tjek date without colon in the offset as expired once passed', () => {
-    expect(isExpiredOffer({ valid_until: '2026-09-23T21:59:59+0000' }, NOW)).toBe(true);
-  });
-
-  it('keeps offers that are still running', () => {
-    expect(isExpiredOffer({ valid_until: '2026-09-27T21:59:59+0000' }, NOW)).toBe(false);
-  });
-
-  it('never expires rows without a date or with an unparseable one', () => {
-    expect(isExpiredOffer({ valid_until: null }, NOW)).toBe(false);
-    expect(isExpiredOffer({}, NOW)).toBe(false);
-    expect(isExpiredOffer({ valid_until: 'snart' }, NOW)).toBe(false);
-  });
-});
-
-describe('isActiveDealProduct', () => {
-  it('drops an expired weekly offer even though tjek rows always count as deals', () => {
-    const offer = {
-      price_source: 'tjek' as const,
-      campaign_text: null,
-      drop_pct: 77,
-      valid_until: '2000-01-01T00:00:00+0000',
-    };
-    expect(isActiveDealProduct(offer)).toBe(false);
-    expect(isActiveDealProduct({ ...offer, valid_until: '2999-01-01T00:00:00+0000' })).toBe(true);
-  });
-});
-
-describe('isUpcomingOffer', () => {
-  it('flags a Friday-only offer on Thursday, and not once Friday has started', () => {
-    const fridayOnly = { valid_from: '2026-09-24T22:00:00.000Z' }; // fredag 00:00 i Oslo
-    expect(isUpcomingOffer(fridayOnly, NOW)).toBe(true); // torsdag 08:00
-    expect(isUpcomingOffer(fridayOnly, Date.parse('2026-09-25T08:00:00+02:00'))).toBe(false);
-  });
-
-  it('treats offers without a start date as running', () => {
-    expect(isUpcomingOffer({ valid_from: null }, NOW)).toBe(false);
-    expect(isUpcomingOffer({}, NOW)).toBe(false);
-  });
-});
-
-describe('getDealPriceDisplay', () => {
-  it('shows the stated regular price now and the flyer price separately before an offer starts', () => {
-    const fridayOffer = {
-      current_price: 12.9,
-      original_price: 17.9,
-      valid_from: '2026-09-24T22:00:00.000Z',
-    };
-    expect(getDealPriceDisplay(fridayOffer, NOW)).toEqual({
-      currentPrice: 17.9,
-      upcomingPrice: 12.9,
-    });
-  });
-
-  it('does not call a historical median today’s price when no regular price is provided', () => {
-    const fridayOffer = {
-      current_price: 12.9,
-      original_price: null,
-      valid_from: '2026-09-24T22:00:00.000Z',
-    };
-    expect(getDealPriceDisplay(fridayOffer, NOW)).toEqual({
-      currentPrice: null,
-      upcomingPrice: 12.9,
-    });
-  });
-});
 
 describe('matchesDealSearch', () => {
   const product = {
@@ -109,7 +36,7 @@ describe('matchesDealSearch', () => {
 });
 
 describe('loadCachedDeals', () => {
-  const deal = { ean: '7038010000000', name: 'Melk', valid_until: null };
+  const deal = { ean: '7038010000000', name: 'Melk' };
 
   it('returns nothing when the cache is missing, unreadable or not a list', async () => {
     for (const raw of [null, '{ikke json', '{"ean":"1","name":"Melk"}', 'null']) {
@@ -123,13 +50,11 @@ describe('loadCachedDeals', () => {
     await expect(loadCachedDeals()).resolves.toBeNull();
   });
 
-  it('drops rows without ean or name, rows with a bad date, and expired offers', async () => {
+  it('drops rows without ean or name', async () => {
     getItem.mockResolvedValueOnce(
       JSON.stringify([
         null,
         { name: 'uten ean' },
-        { ean: '1', name: 'Dato som tall', valid_until: 20261101 },
-        { ean: '2', name: 'Utløpt', valid_until: '2000-01-01T00:00:00+0000' },
         deal,
       ]),
     );
@@ -159,18 +84,17 @@ describe('selectTopDeals', () => {
     ...fields,
   });
 
-  it('ranks running offers by discount and skips excluded chains, expired and small drops', () => {
+  it('ranks running offers by discount and skips excluded chains and small drops', () => {
     const catalog = [
       product('1', { drop_pct: 15 }),
       product('2', { drop_pct: 40 }),
       product('3', { drop_pct: 60, chain: 'Oda' }),
       product('4', { drop_pct: 3 }),
-      product('5', { drop_pct: 50, valid_from: '2999-01-01T00:00:00+0000' }),
-      product('6', { drop_pct: 70, valid_until: '2000-01-01T00:00:00+0000' }),
+      product('5', { drop_pct: 50 }),
     ];
-    expect(selectTopDeals(catalog, 10).map((p) => p.ean)).toEqual(['2', '1', '5']);
-    expect(selectTopDeals(catalog, 10, 2).map((p) => p.ean)).toEqual(['2', '1']);
+    expect(selectTopDeals(catalog, 10).map((p) => p.ean)).toEqual(['5', '2', '1']);
+    expect(selectTopDeals(catalog, 10, 2).map((p) => p.ean)).toEqual(['5', '2']);
     // Katalogen deles med resten av appen og må ikke sorteres om.
-    expect(catalog.map((p) => p.ean)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(catalog.map((p) => p.ean)).toEqual(['1', '2', '3', '4', '5']);
   });
 });

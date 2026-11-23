@@ -4,39 +4,8 @@ import { useState } from 'react';
 import { openBrowserAsync } from 'expo-web-browser';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Line, Path, Svg, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
-import { isUpcomingOffer } from '@/lib/deals';
 import { pricePresentation } from '@/lib/pricing';
 import type { MenyProduct, PricePoint } from '@/lib/types';
-
-export function formatValidUntil(value: string | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short' }).format(date);
-}
-
-// «Gjelder fre. 25.–lør. 26. sep.» for tilbud som ikke har startet ennå, så en
-// fredagspris ikke ser ut som dagens pris.
-export function formatUpcomingWindow(deal: Pick<MenyProduct, 'valid_from' | 'valid_until'>) {
-  if (!isUpcomingOffer(deal) || !deal.valid_from) return null;
-  const toDate = (value: string | null | undefined) => {
-    const date = value ? new Date(value.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : null;
-    return date && !Number.isNaN(date.getTime()) ? date : null;
-  };
-  const format = (date: Date, withMonth: boolean) =>
-    new Intl.DateTimeFormat('nb-NO', {
-      weekday: 'short',
-      day: 'numeric',
-      ...(withMonth ? { month: 'short' } : {}),
-    }).format(date);
-  const from = toDate(deal.valid_from);
-  const until = toDate(deal.valid_until);
-  if (!from) return null;
-  if (!until || until.toDateString() === from.toDateString()) {
-    return `Gjelder ${format(from, true)}`;
-  }
-  return `Gjelder ${format(from, false)}–${format(until, true)}`;
-}
 
 export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClose: () => void }) {
   const presentation = pricePresentation({ ...deal, price: deal.current_price });
@@ -97,7 +66,7 @@ export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClos
           ) : null}
           {usualPrice ? (
             <Text style={styles.unitPrice}>
-              {deal.price_source === 'tjek' ? 'Før' : 'Vanligvis'} {usualPrice}
+              Vanligvis {usualPrice}
             </Text>
           ) : null}
           {vendorUrl ? (
@@ -138,16 +107,7 @@ export function PriceHistoryModal({ deal, onClose }: { deal: MenyProduct; onClos
               ))}
             </View>
           ) : null}
-          {deal.price_source === 'tjek' ? (
-            <Text style={styles.validUntilModal}>
-              Ukestilbud fra kundeavisen
-              {formatUpcomingWindow(deal)
-                ? ` · ${formatUpcomingWindow(deal)!.toLowerCase()}`
-                : formatValidUntil(deal.valid_until)
-                  ? ` · gjelder til ${formatValidUntil(deal.valid_until)}`
-                  : ''}
-            </Text>
-          ) : history.length >= 2 ? (
+          {history.length >= 2 ? (
             <>
               {scale !== 1 ? <Text style={styles.unitPrice}>Prishistorikk i kr/kg</Text> : null}
               <PriceChart
@@ -413,5 +373,4 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   vendorLinkText: { fontSize: 13, color: '#005B99', fontWeight: '600' },
-  validUntilModal: { fontSize: 13, color: '#005B99', fontWeight: '600', marginTop: 16 },
 });
