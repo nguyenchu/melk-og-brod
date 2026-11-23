@@ -13,7 +13,7 @@ const deal: MenyProduct = {
   current_price: 30,
   median_30d: 50,
   original_price: 50,
-  price_source: 'tjek',
+  price_source: 'meny',
   drop_pct: 40,
   campaign_text: null,
   cheapest_price: null,
@@ -39,14 +39,11 @@ describe('selectSuperDeals', () => {
     ]);
   });
 
-  it('skips unknown comparison prices and campaigns outside their validity period', () => {
+  it('skips unknown comparison prices', () => {
     expect(
       selectSuperDeals(
         [
           { ...deal, original_price: null },
-          { ...deal, valid_from: '2026-11-05T10:00:00+0000' },
-          { ...deal, valid_until: '2026-11-04T10:00:00+0000' },
-          { ...deal, valid_until: 'invalid' },
         ],
         now,
       ),

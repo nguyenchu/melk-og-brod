@@ -3,7 +3,6 @@ import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect, useState } from 'react';
 import { isLikelyCampaignText } from './campaigns';
 import { getCatalog, hasDataConfig } from './catalog';
-import { isExpiredOffer } from './deals';
 import type { PriceMeasure } from './price-measure';
 import type { CartItem, MenyProduct } from './types';
 
@@ -47,13 +46,6 @@ function normalizeCartItem(
 
 function hasDealSignal(item: { drop_pct?: number | null; campaign_text?: string | null }): boolean {
   return (item.drop_pct ?? 0) >= 5 || isLikelyCampaignText(item.campaign_text);
-}
-
-// Eldre versjoner la «· #xxxx» (slutten av den syntetiske tjek-id-en) på
-// navnet til tjek-tilbud. Det sier ikke brukeren noe, så fjern det.
-function tidyTjekName(item: Pick<CartItem, 'name' | 'ean'>): string {
-  if (!item.ean?.startsWith('tjek:')) return item.name;
-  return item.name.replace(/ · #\S{1,4}$/, '');
 }
 
 type StoredCartItem = Parameters<typeof normalizeCartItem>[0];
@@ -142,7 +134,6 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
           drop_pct: p.drop_pct,
           chain: p.chain,
           multibuy: p.multibuy ?? null,
-          expired: isExpiredOffer(p),
         },
       ]),
   );
@@ -171,13 +162,13 @@ async function hydrateCartProductData(items: CartItem[]): Promise<CartItem[]> {
       // the cart screen flags these separately via fetchDiscontinuedEans.
       if (!live) return item;
 
-      const nowOnDeal = !live.expired && hasDealSignal(live);
+      const nowOnDeal = hasDealSignal(live);
       // Backfill multibuy for varer lagt til før feltet fantes. For multibuy er
       // CartItem.price enkeltprisen (single); selve pakke-prisen ligger i multibuy.
       const liveMultibuy = live.multibuy ?? null;
       const next: CartItem = {
         ...item,
-        name: tidyTjekName(item),
+        name: item.name,
         chain: item.chain ?? live.chain, // backfill kjede for varer lagt til før chain fantes
         image_url: item.image_url ?? live.image_url,
         price: liveMultibuy ? liveMultibuy.single : (live.current_price ?? item.price),

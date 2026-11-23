@@ -30,12 +30,10 @@ import {
   type ChainOption,
 } from '@/lib/chains';
 import { addToCart, removeFromCart, updateQuantity, useCart } from '@/lib/cart';
-import { PriceHistoryModal, formatUpcomingWindow, formatValidUntil } from '@/components/price-history-modal';
+import { PriceHistoryModal } from '@/components/price-history-modal';
 import { getCampaignKind, isLikelyCampaignText } from '@/lib/campaigns';
 import {
   loadCachedDeals,
-  getDealPriceDisplay,
-  isUpcomingOffer,
   matchesDealSearch,
   saveCachedDeals,
   selectTopDeals,
@@ -262,7 +260,7 @@ export default function DealsScreen() {
         data={showSuperDeals ? selectSuperDeals(superDealRows).map(({ product }) => product) : filteredDeals}
         numColumns={numColumns}
         columnWrapperStyle={styles.gridRow}
-        keyExtractor={(d) => JSON.stringify([d.ean, d.chain, d.valid_from, d.valid_until])}
+        keyExtractor={(d) => JSON.stringify([d.ean, d.chain])}
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         stickyHeaderIndices={[0]}
@@ -539,23 +537,15 @@ const DealRow = memo(function DealRow({
   }
 
   const drop = item.drop_pct ?? 0;
-  const isWeekly = item.price_source === 'tjek';
-  const priceDisplay = getDealPriceDisplay(item);
-  const isUpcoming = isWeekly && isUpcomingOffer(item);
-  const presentation = pricePresentation({ ...item, price: priceDisplay.currentPrice });
-  const upcomingPresentation = priceDisplay.upcomingPrice == null
-    ? null
-    : pricePresentation({ ...item, price: priceDisplay.upcomingPrice });
+  const presentation = pricePresentation({ ...item, price: item.current_price });
   const approximate = presentation.approximate;
   const currentPriceLabel = presentation.primary;
-  const beforePriceLabel = isUpcoming ? null : pricePresentation({
-      ...item,
-      price: item.median_30d,
-      unit_price: null,
-    }).primary;
-  const beforePricePrefix = isWeekly ? 'før' : 'vanligvis';
-  const upcomingLabel = isWeekly ? formatUpcomingWindow(item) : null;
-  const validUntilLabel = isWeekly && !upcomingLabel ? formatValidUntil(item.valid_until) : null;
+  const beforePriceLabel = pricePresentation({
+    ...item,
+    price: item.median_30d,
+    unit_price: null,
+  }).primary;
+  const beforePricePrefix = 'vanligvis';
   const unitPriceLabel = presentation.secondary;
   const showBrand = shouldShowBrand(item.name, item.brand);
 
@@ -714,23 +704,6 @@ const DealRow = memo(function DealRow({
         )}
         {approximate && !presentation.loose ? (
           <Text style={styles.approximate}>Vektvare, pris kan variere litt</Text>
-        ) : null}
-        {upcomingLabel ? (
-          <>
-            <Text style={[styles.validUntil, styles.validUpcoming]}>{upcomingLabel}</Text>
-            {upcomingPresentation?.primary ? (
-              <Text style={[styles.validUntil, styles.validUpcoming]}>
-                Tilbudspris: {upcomingPresentation.primary}
-              </Text>
-            ) : null}
-            <Text style={styles.validUntil}>
-              {priceDisplay.currentPrice == null
-                ? 'Dagens pris er ikke oppgitt'
-                : 'Pris nå basert på oppgitt ordinærpris'}
-            </Text>
-          </>
-        ) : validUntilLabel ? (
-          <Text style={styles.validUntil}>Gjelder til {validUntilLabel}</Text>
         ) : null}
       </View>
       {isGrid ? (
@@ -917,8 +890,6 @@ const styles = StyleSheet.create({
   },
   approximate: { fontSize: 12, color: '#8b6b34', marginTop: 3 },
   unitPrice: { fontSize: 12, color: '#666', marginTop: 1 },
-  validUntil: { fontSize: 12, color: '#005B99', marginTop: 2, fontWeight: '600' },
-  validUpcoming: { color: '#A85C00' },
   right: { alignItems: 'center', gap: 6, minWidth: 84 },
   chainPill: {
     alignSelf: 'flex-start',
